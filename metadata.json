@@ -1,0 +1,6 @@
+{
+  "name": "Une Maison - Sharehouse Expense Splitter",
+  "description": "Une Maison automatically divides sharehouse expenses equally by 3 with timestamps, roommate spending tracking, and instant debt settlement in Japanese Yen (¥).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
