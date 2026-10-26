@@ -100,16 +100,30 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
     setLoading(true);
 
     Promise.all([
-      loadUserBudget(currentUser.id),
-      loadUserSpendings(currentUser.id),
-    ]).then(([b, s]) => {
-      if (isMounted) {
-        setBudget(b);
-        setSpendings(s);
-        setNewBudgetStr(b.startingBalance.toString());
-        setLoading(false);
-      }
-    });
+  loadUserBudget(currentUser.id),
+  loadUserSpendings(currentUser.id),
+])
+  .then(([b, s]) => {
+    if (!isMounted) return;
+
+    setBudget(b);
+    setSpendings(s);
+    setNewBudgetStr(b.startingBalance.toString());
+  })
+  .catch((error) => {
+    console.error('Failed to load Pocketbook data:', error);
+
+    if (isMounted) {
+      setBudget(null);
+      setSpendings([]);
+      // Ideally, display an error message in the UI here.
+    }
+  })
+  .finally(() => {
+    if (isMounted) {
+      setLoading(false);
+    }
+  });
 
     return () => {
       isMounted = false;
