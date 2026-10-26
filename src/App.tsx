@@ -204,9 +204,9 @@ export default function App() {
         }
 
         // 3. House Expenses Table
-        if (cloudExpenses && cloudExpenses.length > 0) {
-          setExpenses(cloudExpenses);
-        }
+        if (cloudExpenses !== null) {
+  setExpenses(cloudExpenses);
+}
 
         // 4. Settlements Table
         if (cloudSettlements) {
@@ -214,9 +214,9 @@ export default function App() {
         }
 
         // 5. Pot Contributions Table
-        if (cloudPot && cloudPot.length > 0) {
-          setPotContributions(cloudPot);
-        }
+       if (cloudPot !== null) {
+  setPotContributions(cloudPot);
+}
       } catch (e) {
         console.warn('Startup Supabase sync check:', e);
       }
