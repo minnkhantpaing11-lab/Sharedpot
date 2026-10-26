@@ -486,40 +486,7 @@ export async function loadHouseExpensesFromSupabase(): Promise<Expense[]> {
   }));
 }
 
-// ==================== HOUSE EXPENSES TABLE SERVICE ====================
 
-export async function loadHouseExpensesFromSupabase(): Promise<Expense[] | null> {
-  const config = getSavedSupabaseConfig();
-  const client = getSupabaseClient(config);
-  if (!client || !config.isConnected) return null;
-
-  try {
-    const { data, error } = await client
-      .from('house_expenses')
-      .select('*')
-      .order('timestamp', { ascending: false });
-
-    if (!error && data && data.length > 0) {
-      return data.map((row: any) => ({
-        id: row.id,
-        title: row.title,
-        amount: Number(row.amount),
-        date: row.date,
-        time: row.time,
-        timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
-        paidById: row.paid_by_id,
-        splitBetween: Array.isArray(row.split_between) ? row.split_between : ['p1', 'p2', 'p3'],
-        category: row.category,
-        notes: row.notes,
-        receiptUrl: row.receipt_url,
-        paidFromPot: Boolean(row.paid_from_pot),
-      }));
-    }
-  } catch (e) {
-    console.warn('Could not load house expenses from Supabase:', e);
-  }
-  return null;
-}
 
 export async function saveHouseExpenseToSupabase(expense: Expense): Promise<void> {
   const config = getSavedSupabaseConfig();
