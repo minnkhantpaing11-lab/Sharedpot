@@ -11,6 +11,7 @@ import { calculateSummaries } from './utils/calculations';
 import {
   getCurrentUser,
   getSavedSupabaseConfig,
+  getSupabaseClient,
   logoutUser,
   loadRoommatesFromSupabase,
   saveRoommatesToSupabase,
@@ -71,27 +72,27 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_EXPENSES);
-      return saved ? JSON.parse(saved) : INITIAL_EXPENSES;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_EXPENSES;
+      return [];
     }
   });
 
   const [settlements, setSettlements] = useState<SettlementRecord[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_SETTLEMENTS);
-      return saved ? JSON.parse(saved) : INITIAL_SETTLEMENTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_SETTLEMENTS;
+      return [];
     }
   });
 
   const [potContributions, setPotContributions] = useState<SharedPotContribution[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_POT_CONTRIBUTIONS);
-      return saved ? JSON.parse(saved) : INITIAL_POT_CONTRIBUTIONS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_POT_CONTRIBUTIONS;
+      return [];
     }
   });
 
@@ -169,62 +170,80 @@ export default function App() {
     return totalDeposited - totalDeducted;
   }, [potContributions, expenses]);
 
-  // Initial cloud synchronization from Supabase tables
+  // Load each cloud table independently so one failing table cannot block the others.
+  // Subscribe to Postgres changes so edits made on a phone appear on other devices.
   useEffect(() => {
     let isMounted = true;
-    async function loadInitialCloudData() {
-      try {
-        const [cloudRoommates, cloudSettings, cloudExpenses, cloudSettlements, cloudPot] =
-          await Promise.all([
-            loadRoommatesFromSupabase(),
-            loadHouseSettingsFromSupabase(),
-            loadHouseExpensesFromSupabase(),
-            loadSettlementsFromSupabase(),
-            loadPotContributionsFromSupabase(),
-          ]);
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
-        if (!isMounted) return;
+    async function loadCloudData() {
+      const results = await Promise.allSettled([
+        loadRoommatesFromSupabase(),
+        loadHouseSettingsFromSupabase(),
+        loadHouseExpensesFromSupabase(),
+        loadSettlementsFromSupabase(),
+        loadPotContributionsFromSupabase(),
+      ]);
+      if (!isMounted) return;
 
-        // 1. Roommates Table
-        if (cloudRoommates && cloudRoommates.length > 0) {
-          setSettings((prev) => ({ ...prev, roommates: cloudRoommates }));
-        } else {
-          // Table exists but is empty -> seed initial roommates
-          saveRoommatesToSupabase(settings.roommates);
-        }
-
-        // 2. House Settings Table
-        if (cloudSettings) {
-          setSettings((prev) => ({
-            ...prev,
-            houseName: cloudSettings.houseName || prev.houseName,
-            currency: cloudSettings.currency || prev.currency,
-            sharedPotSettings: cloudSettings.sharedPotSettings || prev.sharedPotSettings,
-          }));
-        }
-
-        // 3. House Expenses Table
-        if (cloudExpenses !== null) {
-  setExpenses(cloudExpenses);
-}
-
-        // 4. Settlements Table
-        if (cloudSettlements) {
-          setSettlements(cloudSettlements);
-        }
-
-        // 5. Pot Contributions Table
-       if (cloudPot !== null) {
-  setPotContributions(cloudPot);
-}
-      } catch (e) {
-        console.warn('Startup Supabase sync check:', e);
+      const [roommatesResult, settingsResult, expensesResult, settlementsResult, potResult] = results;
+      if (roommatesResult.status === 'fulfilled' && roommatesResult.value?.length) {
+        setSettings((prev) => ({ ...prev, roommates: roommatesResult.value! }));
+      }
+      if (settingsResult.status === 'fulfilled' && settingsResult.value) {
+        const cloudSettings = settingsResult.value;
+        setSettings((prev) => ({
+          ...prev,
+          houseName: cloudSettings.houseName || prev.houseName,
+          currency: cloudSettings.currency || prev.currency,
+          sharedPotSettings: cloudSettings.sharedPotSettings || prev.sharedPotSettings,
+        }));
+      }
+      // An empty cloud result is authoritative: don't keep showing local/demo records.
+      if (expensesResult.status === 'fulfilled') setExpenses(expensesResult.value);
+      else console.warn('Could not load cloud expenses; local data was left unchanged.', expensesResult.reason);
+      if (settlementsResult.status === 'fulfilled' && settlementsResult.value !== null) {
+        setSettlements(settlementsResult.value);
+      }
+      if (potResult.status === 'fulfilled' && potResult.value !== null) {
+        setPotContributions(potResult.value);
       }
     }
 
-    loadInitialCloudData();
+    void loadCloudData();
+
+    const client = getSupabaseClient();
+    let channel: ReturnType<NonNullable<typeof client>['channel']> | undefined;
+    if (client) {
+      channel = client
+        .channel('sharedpot-house-data-sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'house_expenses' }, () => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => void loadCloudData(), 250);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'settlements' }, () => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => void loadCloudData(), 250);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'pot_contributions' }, () => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => void loadCloudData(), 250);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'roommates' }, () => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => void loadCloudData(), 250);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'house_settings' }, () => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => void loadCloudData(), 250);
+        })
+        .subscribe();
+    }
+
     return () => {
       isMounted = false;
+      if (reloadTimer) clearTimeout(reloadTimer);
+      if (client && channel) void client.removeChannel(channel);
     };
   }, []);
 
