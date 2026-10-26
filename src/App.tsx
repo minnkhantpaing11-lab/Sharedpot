@@ -577,7 +577,7 @@ export default function App() {
         onClose={() => setIsSupabaseModalOpen(false)}
         onConfigUpdated={(newCfg) => {
           setSupabaseConfig(newCfg);
-          showToast(newCfg.isConnected ? 'Supabase project linked!' : 'Switched to local storage');
+          showToast('Supabase Cloud configuration saved');
         }}
       />
 

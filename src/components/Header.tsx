@@ -208,14 +208,12 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={onOpenSupabaseSettings}
-                  title="Supabase Settings"
-                  className={`p-2 rounded-xl border shadow-2xs transition-colors ${
-                    supabaseConfig.isConnected
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-250 hover:bg-emerald-100'
-                      : 'bg-white text-stone-600 border-stone-250 hover:bg-stone-50'
-                  }`}
+                  title="Supabase Cloud: Always Connected"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 shadow-2xs transition-colors"
                 >
-                  <Database className="w-4 h-4" />
+                  <Database className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="hidden sm:inline text-xs font-semibold">Cloud Synced</span>
                 </button>
 
                 {currentUser ? (

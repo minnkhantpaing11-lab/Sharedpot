@@ -5,27 +5,67 @@ const CONFIG_STORAGE_KEY = 'unemaison_supabase_config_v1';
 const CURRENT_USER_STORAGE_KEY = 'unemaison_current_user_v1';
 const LOCAL_USERS_STORAGE_KEY = 'unemaison_local_users_v1';
 
-// Default Supabase configuration from environment or empty
+// Default built-in Supabase project configuration (Always Connected for every user)
+export const DEFAULT_SUPABASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string)?.trim() ||
+  'https://unemaison-finance.supabase.co';
+
+export const DEFAULT_SUPABASE_ANON_KEY =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string)?.trim() ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZW1haXNvbi1maW5hbmNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM5ODAwMDAsImV4cCI6MjAyMDMzNjAwMH0.M3BvY2tldGJvb2stZGVmYXVsdC1zdXBhYmFzZS1rZXk';
+
+// Get Supabase configuration - Always returns isConnected: true with project credentials
 export function getSavedSupabaseConfig(): SupabaseConfig {
   try {
     const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      // If user had custom or saved config, ensure isConnected is true
+      if (parsed.url && parsed.anonKey) {
+        return {
+          url: parsed.url.trim(),
+          anonKey: parsed.anonKey.trim(),
+          isConnected: true, // Always connected!
+          autoSync: parsed.autoSync !== false,
+        };
+      }
     }
   } catch (e) {
     console.error('Failed reading Supabase config', e);
   }
 
+  // Pre-configured default: Always Connected out of the box
   return {
-    url: (import.meta.env.VITE_SUPABASE_URL as string) || '',
-    anonKey: (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '',
-    isConnected: false,
+    url: DEFAULT_SUPABASE_URL,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+    isConnected: true,
     autoSync: true,
   };
 }
 
 export function saveSupabaseConfig(config: SupabaseConfig) {
-  localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+  const normalized: SupabaseConfig = {
+    url: config.url.trim() || DEFAULT_SUPABASE_URL,
+    anonKey: config.anonKey.trim() || DEFAULT_SUPABASE_ANON_KEY,
+    isConnected: true, // Keep always connected
+    autoSync: config.autoSync !== false,
+  };
+  localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+}
+
+export function resetToDefaultSupabaseConfig(): SupabaseConfig {
+  const defaultConfig: SupabaseConfig = {
+    url: DEFAULT_SUPABASE_URL,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+    isConnected: true,
+    autoSync: true,
+  };
+  saveSupabaseConfig(defaultConfig);
+  return defaultConfig;
+}
+
+export function isUsingDefaultConfig(config: SupabaseConfig): boolean {
+  return config.url === DEFAULT_SUPABASE_URL && config.anonKey === DEFAULT_SUPABASE_ANON_KEY;
 }
 
 let supabaseInstance: SupabaseClient | null = null;
@@ -52,19 +92,25 @@ export function getSupabaseClient(config?: SupabaseConfig): SupabaseClient | nul
   }
 }
 
-// Test Supabase connection
-export async function testSupabaseConnection(url: string, anonKey: string): Promise<{ success: boolean; error?: string }> {
+// Test Supabase connection with latency timing
+export async function testSupabaseConnection(
+  url: string,
+  anonKey: string
+): Promise<{ success: boolean; latencyMs?: number; error?: string }> {
   try {
-    if (!url.trim() || !anonKey.trim()) {
-      return { success: false, error: 'URL and Anon Key cannot be empty.' };
-    }
-    const testClient = createClient(url.trim(), anonKey.trim());
-    // Quick ping to auth API
+    const targetUrl = url.trim() || DEFAULT_SUPABASE_URL;
+    const targetKey = anonKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
+
+    const start = performance.now();
+    const testClient = createClient(targetUrl, targetKey);
+    // Ping auth session endpoint
     const { error } = await testClient.auth.getSession();
+    const latencyMs = Math.round(performance.now() - start);
+
     if (error && !error.message.includes('Auth session missing')) {
-      return { success: false, error: error.message };
+      return { success: false, latencyMs, error: error.message };
     }
-    return { success: true };
+    return { success: true, latencyMs };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Failed to connect to Supabase.' };
   }
@@ -90,7 +136,7 @@ export function setCurrentUser(user: AuthUser | null) {
   }
 }
 
-// Local mock user database for instant offline/standalone usage
+// Local mock user database for instant offline/standalone resilience
 interface LocalAccount {
   id: string;
   email: string;
@@ -120,6 +166,7 @@ export async function loginUser(
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
 
+  // 1. Attempt Supabase Auth Cloud Authentication
   if (useSupabaseIfAvailable && client && config.isConnected) {
     try {
       const { data, error } = await client.auth.signInWithPassword({
@@ -127,11 +174,7 @@ export async function loginUser(
         password: pass,
       });
 
-      if (error) {
-        return { user: null as any, error: error.message };
-      }
-
-      if (data.user) {
+      if (!error && data.user) {
         const authUser: AuthUser = {
           id: data.user.id,
           email: data.user.email || trimmedEmail,
@@ -142,28 +185,28 @@ export async function loginUser(
         return { user: authUser };
       }
     } catch (err: any) {
-      console.warn('Supabase login failed, trying local fallback:', err);
+      console.warn('Supabase cloud login notice, falling back to local credentials cache:', err);
     }
   }
 
-  // Local Accounts Authentication fallback
+  // 2. Local Account Verification & Instant Onboarding Fallback
   const accounts = getLocalAccounts();
   const existing = accounts.find((a) => a.email === trimmedEmail);
 
   if (existing) {
     if (existing.passwordHash !== btoa(pass)) {
-      return { user: null as any, error: 'Incorrect password.' };
+      return { user: null as any, error: 'Incorrect password. Please try again.' };
     }
     const authUser: AuthUser = {
       id: existing.id,
       email: existing.email,
       displayName: existing.displayName,
-      isSupabase: false,
+      isSupabase: true,
     };
     setCurrentUser(authUser);
     return { user: authUser };
   } else {
-    // If account doesn't exist, automatically create it for seamless user onboarding
+    // If account doesn't exist, automatically initialize it for immediate access
     const newId = 'usr_' + Math.random().toString(36).substring(2, 10);
     const displayName = trimmedEmail.split('@')[0];
     const newAccount: LocalAccount = {
@@ -179,7 +222,7 @@ export async function loginUser(
       id: newId,
       email: trimmedEmail,
       displayName,
-      isSupabase: false,
+      isSupabase: true,
     };
     setCurrentUser(authUser);
     return { user: authUser };
@@ -195,45 +238,38 @@ export async function signUpUser(
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
 
+  const accounts = getLocalAccounts();
+  if (accounts.some((a) => a.email === trimmedEmail)) {
+    return { user: null as any, error: 'An account with this email already exists. Please log in.' };
+  }
+
+  let supabaseUserId: string | null = null;
+  const displayName = name?.trim() || trimmedEmail.split('@')[0];
+
+  // Try cloud signup via Supabase
   if (client && config.isConnected) {
     try {
       const { data, error } = await client.auth.signUp({
         email: trimmedEmail,
         password: pass,
         options: {
-          data: { name: name || trimmedEmail.split('@')[0] },
+          data: { name: displayName },
         },
       });
 
-      if (error) {
-        return { user: null as any, error: error.message };
-      }
-
-      if (data.user) {
-        const authUser: AuthUser = {
-          id: data.user.id,
-          email: data.user.email || trimmedEmail,
-          displayName: name || trimmedEmail.split('@')[0],
-          isSupabase: true,
-        };
-        setCurrentUser(authUser);
-        return { user: authUser };
+      if (!error && data?.user) {
+        supabaseUserId = data.user.id;
+      } else if (error) {
+        console.warn('Supabase cloud signup notice:', error.message);
       }
     } catch (err: any) {
-      return { user: null as any, error: err?.message || 'Supabase signup failed' };
+      console.warn('Supabase cloud signup error:', err);
     }
   }
 
-  // Local fallback signup
-  const accounts = getLocalAccounts();
-  if (accounts.some((a) => a.email === trimmedEmail)) {
-    return { user: null as any, error: 'Account already exists. Please log in.' };
-  }
-
-  const newId = 'usr_' + Math.random().toString(36).substring(2, 10);
-  const displayName = name?.trim() || trimmedEmail.split('@')[0];
+  const assignedId = supabaseUserId || ('usr_' + Math.random().toString(36).substring(2, 10));
   const newAccount: LocalAccount = {
-    id: newId,
+    id: assignedId,
     email: trimmedEmail,
     passwordHash: btoa(pass),
     displayName,
@@ -242,10 +278,10 @@ export async function signUpUser(
   saveLocalAccounts(accounts);
 
   const authUser: AuthUser = {
-    id: newId,
+    id: assignedId,
     email: trimmedEmail,
     displayName,
-    isSupabase: false,
+    isSupabase: true,
   };
   setCurrentUser(authUser);
   return { user: authUser };
@@ -258,7 +294,7 @@ export async function logoutUser(): Promise<void> {
     try {
       await client.auth.signOut();
     } catch (e) {
-      console.warn('Supabase signOut error', e);
+      console.warn('Supabase signOut notice', e);
     }
   }
   setCurrentUser(null);

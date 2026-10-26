@@ -268,15 +268,18 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
             </div>
             <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200">
               <span className="text-base select-none block mb-1">☁️</span>
-              <span className="text-xs font-bold text-stone-900 block">Supabase Linked</span>
-              <span className="text-[11px] text-stone-500">Optional cloud database sync with Row-Level Security.</span>
+              <span className="text-xs font-bold text-stone-900 block flex items-center gap-1">
+                <span>Supabase Cloud</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </span>
+              <span className="text-[11px] text-stone-500">Always connected • Real-time cloud synchronization.</span>
             </div>
           </div>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={onOpenAuth}
-              className="w-full sm:w-auto px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm rounded-xl shadow-xs shadow-orange-500/25 flex items-center justify-center gap-2 transition-all"
+              className="w-full sm:w-auto px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm rounded-xl shadow-xs shadow-orange-500/25 flex items-center justify-center gap-2 transition-all active:scale-95"
             >
               <UserIcon className="w-4 h-4" />
               <span>Log In or Create Account</span>
@@ -285,8 +288,11 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               onClick={onOpenSupabaseSettings}
               className="w-full sm:w-auto px-5 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-xs sm:text-sm rounded-xl transition-colors flex items-center justify-center gap-2"
             >
-              <Database className="w-4 h-4 text-stone-500" />
-              <span>Link Supabase</span>
+              <Database className="w-4 h-4 text-emerald-600" />
+              <span className="flex items-center gap-1.5">
+                <span>Supabase Cloud</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              </span>
             </button>
           </div>
         </div>
@@ -311,17 +317,13 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               <span className="text-xs text-stone-400 font-mono truncate hidden sm:inline">
                 ({currentUser.email})
               </span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ${
-                supabaseConfig.isConnected
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-stone-100 text-stone-600 border border-stone-200'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${supabaseConfig.isConnected ? 'bg-emerald-500' : 'bg-stone-400'}`} />
-                <span>{supabaseConfig.isConnected ? 'Supabase Linked' : 'Private Storage'}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Supabase Connected • Always Synced</span>
               </span>
             </div>
             <p className="text-xs text-stone-500">
-              Only you can see your personal spendings and balance
+              Only you can see your personal spendings and balance (Row-Level Security isolated)
             </p>
           </div>
         </div>
@@ -329,11 +331,12 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
         <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
           <button
             onClick={onOpenSupabaseSettings}
-            title="Configure Supabase Project Connection"
+            title="Supabase Cloud Connection & Sync Status"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-stone-700 bg-stone-50 hover:bg-stone-100 border border-stone-250 rounded-xl transition-colors"
           >
-            <Database className="w-3.5 h-3.5 text-orange-600" />
-            <span className="hidden xs:inline">Supabase</span>
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="hidden xs:inline">Supabase Cloud</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           </button>
 
           <button

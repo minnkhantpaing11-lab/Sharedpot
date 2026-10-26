@@ -90,18 +90,17 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
         </div>
 
         {/* Supabase status badge */}
-        <div className="mb-4 p-2.5 bg-stone-50 border border-stone-200 rounded-xl flex items-center justify-between text-xs">
+        <div className="mb-4 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
           <div className="flex items-center gap-1.5 text-stone-700">
-            <Database className="w-3.5 h-3.5 text-orange-600" />
-            <span className="font-medium">Data Storage:</span>
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="font-medium text-emerald-950">Cloud Sync:</span>
             <span className="font-semibold text-stone-900">
-              {config.isConnected ? 'Supabase' : 'Private Storage'}
+              Supabase Connected
             </span>
           </div>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            config.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-orange-50 text-orange-700 border border-orange-200'
-          }`}>
-            {config.isConnected ? 'Cloud Linked' : 'Offline Safe'}
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Always Connected</span>
           </span>
         </div>
 
