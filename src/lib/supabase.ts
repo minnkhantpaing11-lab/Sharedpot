@@ -450,55 +450,40 @@ export async function saveRoommatesToSupabase(roommates: Roommate[]): Promise<vo
 
 // ==================== HOUSE SETTINGS TABLE SERVICE ====================
 
-export async function loadHouseSettingsFromSupabase(): Promise<Partial<HouseSettings> | null> {
+export async function loadHouseExpensesFromSupabase(): Promise<Expense[]> {
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
-  if (!client || !config.isConnected) return null;
 
-  try {
-    const { data, error } = await client
-      .from('house_settings')
-      .select('*')
-      .eq('id', 'house_main')
-      .single();
-
-    if (!error && data) {
-      return {
-        houseName: data.house_name,
-        currency: data.currency,
-        sharedPotSettings: {
-          monthlyContributionPerPerson: Number(data.pot_monthly_target) || 30000,
-          potName: data.pot_name || 'Une Maison Shared Pot',
-        },
-      };
-    }
-  } catch (e) {
-    console.warn('Could not load house settings from Supabase:', e);
+  if (!client || !config.isConnected) {
+    throw new Error('Supabase is not connected.');
   }
-  return null;
-}
 
-export async function saveHouseSettingsToSupabase(
-  settings: HouseSettings,
-  potBalance: number = 0
-): Promise<void> {
-  const config = getSavedSupabaseConfig();
-  const client = getSupabaseClient(config);
-  if (!client || !config.isConnected) return;
+  const { data, error } = await client
+    .from('house_expenses')
+    .select('*')
+    .order('timestamp', { ascending: false });
 
-  try {
-    await client.from('house_settings').upsert({
-      id: 'house_main',
-      house_name: settings.houseName,
-      currency: settings.currency,
-      pot_monthly_target: settings.sharedPotSettings?.monthlyContributionPerPerson || 30000,
-      pot_name: settings.sharedPotSettings?.potName || 'Une Maison Shared Pot',
-      pot_balance: potBalance,
-      updated_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.warn('Failed saving house settings to Supabase:', e);
+  if (error) {
+    console.error('Failed to load house expenses:', error);
+    throw error;
   }
+
+  return (data ?? []).map((row: any): Expense => ({
+    id: row.id,
+    title: row.title,
+    amount: Number(row.amount),
+    date: row.date,
+    time: row.time,
+    timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
+    paidById: row.paid_by_id,
+    splitBetween: Array.isArray(row.split_between)
+      ? row.split_between
+      : [],
+    category: row.category,
+    notes: row.notes,
+    receiptUrl: row.receipt_url,
+    paidFromPot: Boolean(row.paid_from_pot),
+  }));
 }
 
 // ==================== HOUSE EXPENSES TABLE SERVICE ====================
@@ -819,37 +804,41 @@ export async function saveUserBudget(
 }
 
 // Load user's personal spendings
-export async function loadUserSpendings(userId: string): Promise<PersonalExpense[]> {
+// Load user's personal spendings — Supabase only
+export async function loadUserSpendings(
+  userId: string
+): Promise<PersonalExpense[]> {
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
 
-  if (client && config.isConnected) {
-    try {
-      const { data, error } = await client
-        .from('personal_spendings')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        const mapped: PersonalExpense[] = data.map((row: any) => ({
-          id: row.id,
-          userId: row.user_id,
-          subject: row.subject,
-          amount: Number(row.amount),
-          category: (row.category as PersonalCategory) || 'food',
-          notes: row.notes,
-          date: row.date || new Date(row.created_at).toISOString().split('T')[0],
-          time: row.time || new Date(row.created_at).toTimeString().substring(0, 5),
-          timestamp: new Date(row.created_at).getTime(),
-        }));
-        localStorage.setItem(getExpensesStorageKey(userId), JSON.stringify(mapped));
-        return mapped;
-      }
-    } catch (e) {
-      console.warn('Failed to load spendings from Supabase, using local cache', e);
-    }
+  if (!client || !config.isConnected) {
+    throw new Error('Supabase is not connected.');
   }
+
+  const { data, error } = await client
+    .from('personal_spendings')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Failed to load personal spendings:', error);
+    throw error;
+  }
+
+  // An empty table is a valid result. Return [] rather than demo data.
+  return (data ?? []).map((row: any): PersonalExpense => ({
+    id: row.id,
+    userId: row.user_id,
+    subject: row.subject,
+    amount: Number(row.amount),
+    category: (row.category as PersonalCategory) || 'other',
+    notes: row.notes ?? undefined,
+    date: row.date || new Date(row.created_at).toISOString().split('T')[0],
+    time: row.time || new Date(row.created_at).toTimeString().substring(0, 5),
+    timestamp: new Date(row.created_at).getTime(),
+  }));
+}
 
   // Local storage isolated by userId
   try {
