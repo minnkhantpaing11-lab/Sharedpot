@@ -200,10 +200,19 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
       lastUpdated: Date.now(),
     };
 
+    const newTotal = totalSpent;
+    const newRemaining = Math.round(num) - newTotal;
     setBudget(updated);
     setIsEditingBudget(false);
-    await saveUserBudget(updated);
+    await saveUserBudget(updated, newRemaining, newTotal);
   };
+
+  // Keep live balance and total spent numbers updated in Supabase personal_budgets table row
+  useEffect(() => {
+    if (currentUser && budget) {
+      saveUserBudget(budget, remainingBalance, totalSpent);
+    }
+  }, [totalSpent, budget?.startingBalance, currentUser?.id]);
 
   // Filtered spendings
   const filteredSpendings = useMemo(() => {

@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { X, Database, Check, Copy, AlertCircle, Link as LinkIcon, RotateCcw, ShieldCheck, Zap } from 'lucide-react';
+import {
+  X,
+  Database,
+  Check,
+  Copy,
+  AlertCircle,
+  RotateCcw,
+  ShieldCheck,
+  Zap,
+  TableProperties,
+  ArrowUpRight,
+  RefreshCw,
+} from 'lucide-react';
 import { SupabaseConfig } from '../../types/personal';
 import {
   getSavedSupabaseConfig,
@@ -7,22 +19,26 @@ import {
   resetToDefaultSupabaseConfig,
   isUsingDefaultConfig,
   testSupabaseConnection,
-  SUPABASE_SQL_SETUP_SCRIPT
+  SUPABASE_SQL_SETUP_SCRIPT,
 } from '../../lib/supabase';
 
 interface SupabaseSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfigUpdated: (config: SupabaseConfig) => void;
+  onSyncAllData?: () => Promise<{ success: boolean; error?: string }>;
 }
 
 export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
   isOpen,
   onClose,
   onConfigUpdated,
+  onSyncAllData,
 }) => {
   const [config, setConfig] = useState<SupabaseConfig>(getSavedSupabaseConfig());
   const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string; latency?: number } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSqlCode, setShowSqlCode] = useState(false);
@@ -47,6 +63,33 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
         success: false,
         msg: res.error || 'Connection check failed. Please verify credentials.',
       });
+    }
+  };
+
+  const handleManualSync = async () => {
+    if (!onSyncAllData) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await onSyncAllData();
+      if (res.success) {
+        setSyncResult({
+          success: true,
+          msg: 'All data (roommates, accounts, expenses, balances, pot) synced to Supabase tables!',
+        });
+      } else {
+        setSyncResult({
+          success: false,
+          msg: res.error || 'Sync encountered a problem. Make sure SQL tables are created in Supabase.',
+        });
+      }
+    } catch (e: any) {
+      setSyncResult({
+        success: false,
+        msg: e?.message || 'Sync failed.',
+      });
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -76,10 +119,21 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
+  const tablesList = [
+    { name: 'roommates', desc: 'Roommate names (Alex, Sam, Jordan), avatars, colors' },
+    { name: 'user_accounts', desc: 'Usernames, passwords, emails, and display names' },
+    { name: 'house_expenses', desc: 'Shared bills, amounts, payer, category, and 3-way split' },
+    { name: 'roommate_balances', desc: 'Live numbers: total paid, share, net balance, effective balance' },
+    { name: 'house_settings', desc: 'House name, currency, pot target amount, and balance' },
+    { name: 'settlements', desc: 'Debt settlements and payments between roommates' },
+    { name: 'pot_contributions', desc: 'Monthly contributions deposited into Shared Pot' },
+    { name: 'personal_budgets', desc: 'Starting allowance, current balance, and total spent numbers' },
+    { name: 'personal_spendings', desc: 'Personal individual transactions and categories' },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
       <div className="bg-white border-t sm:border border-stone-200 rounded-t-3xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl relative max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
-        
         {/* Mobile handle */}
         <div className="sm:hidden w-12 h-1.5 bg-stone-300 rounded-full mx-auto -mt-1 mb-2" />
 
@@ -98,13 +152,13 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           </div>
           <div>
             <h2 className="text-base sm:text-lg font-bold text-stone-900 leading-tight flex items-center gap-2">
-              <span>Supabase Cloud Integration</span>
+              <span>Supabase Database Tables</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                 Always Connected
               </span>
             </h2>
             <p className="text-xs text-stone-500">
-              Persistent cloud storage with Row-Level Security (RLS) isolation
+              Roommate names, account credentials, and numbers saved in dedicated rows
             </p>
           </div>
         </div>
@@ -114,14 +168,14 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-bold text-emerald-900">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Status: Connected to Supabase Cloud</span>
+              <span>Status: Connected to Supabase</span>
             </div>
             <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
               {isDefault ? 'Default Shared Cloud' : 'Custom Project'}
             </span>
           </div>
           <p className="text-[11px] text-emerald-800 leading-relaxed">
-            All users are automatically connected to Supabase out-of-the-box. Your account and spendings are strictly isolated with Postgres Row-Level Security.
+            Every update to roommate names, expenses, balances, pot contributions, and accounts automatically updates corresponding rows in your Supabase tables.
           </p>
           {!isDefault && (
             <div className="pt-1 flex justify-end">
@@ -137,13 +191,79 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           )}
         </div>
 
+        {/* Sync Now Action */}
+        {onSyncAllData && (
+          <div className="mb-4 p-3 bg-stone-50 border border-stone-200 rounded-xl flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-stone-800">Push App Data to Supabase</div>
+              <div className="text-[11px] text-stone-500">
+                Syncs roommates, expenses, balances, and pot rows now
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={handleManualSync}
+              className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors shadow-2xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              <span>{syncing ? 'Syncing...' : 'Sync All Rows'}</span>
+            </button>
+          </div>
+        )}
+
+        {syncResult && (
+          <div
+            className={`mb-4 p-3 rounded-xl border text-xs flex items-center gap-2 ${
+              syncResult.success
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-200 text-rose-700'
+            }`}
+          >
+            {syncResult.success ? (
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{syncResult.msg}</span>
+          </div>
+        )}
+
+        {/* 9 Tables Overview */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+              <TableProperties className="w-4 h-4 text-orange-600" />
+              <span>9 Dedicated Supabase Tables</span>
+            </span>
+            <span className="text-[10px] text-stone-500 font-mono">public schema</span>
+          </div>
+
+          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {tablesList.map((t) => (
+              <div
+                key={t.name}
+                className="p-2 bg-stone-50/80 border border-stone-200/80 rounded-lg text-left flex items-start gap-2"
+              >
+                <div className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-2.5 h-2.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-mono font-bold text-stone-900 leading-none">
+                    {t.name}
+                  </div>
+                  <div className="text-[11px] text-stone-500 truncate mt-0.5">{t.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Inputs */}
-        <div className="space-y-3.5">
+        <div className="space-y-3.5 pt-1 border-t border-stone-100">
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-stone-700">
-                Supabase Project URL
-              </label>
+              <label className="text-xs font-semibold text-stone-700">Supabase Project URL</label>
               {isDefault && (
                 <span className="text-[10px] text-stone-400 font-mono">
                   (Pre-configured Default)
@@ -187,11 +307,13 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
 
           {/* Test connection result */}
           {testResult && (
-            <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
-              testResult.success
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-rose-50 border-rose-200 text-rose-700'
-            }`}>
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                testResult.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}
+            >
               {testResult.success ? (
                 <Check className="w-4 h-4 text-emerald-600 shrink-0" />
               ) : (
@@ -210,7 +332,7 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
               className="flex-1 py-2.5 px-3 text-xs font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 disabled:opacity-50 rounded-xl transition-colors flex items-center justify-center gap-1.5"
             >
               <Zap className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{testing ? 'Pinging Cloud...' : 'Ping Cloud Ping / Test'}</span>
+              <span>{testing ? 'Pinging Cloud...' : 'Ping Test'}</span>
             </button>
             <button
               type="button"
@@ -227,7 +349,7 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Supabase SQL Tables & RLS Policies</span>
+              <span>Supabase SQL Table Setup Script</span>
             </span>
             <button
               type="button"
@@ -242,13 +364,13 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  <span>Copy SQL Schema</span>
+                  <span>Copy SQL Script</span>
                 </>
               )}
             </button>
           </div>
           <p className="text-[11px] text-stone-500">
-            Postgres tables for <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-700">personal_spendings</code> and <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-700">personal_budgets</code> with Row-Level Security (RLS) enabled so each user only sees their own data.
+            Paste this SQL script into your Supabase Dashboard <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-700 font-semibold">SQL Editor</code> to generate all 9 tables in one click!
           </p>
 
           <button
@@ -260,12 +382,11 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           </button>
 
           {showSqlCode && (
-            <pre className="p-3 bg-stone-900 text-stone-100 rounded-xl text-[10px] font-mono overflow-x-auto max-h-40 leading-relaxed border border-stone-800">
+            <pre className="p-3 bg-stone-900 text-stone-100 rounded-xl text-[10px] font-mono overflow-x-auto max-h-48 leading-relaxed border border-stone-800">
               {SUPABASE_SQL_SETUP_SCRIPT}
             </pre>
           )}
         </div>
-
       </div>
     </div>
   );

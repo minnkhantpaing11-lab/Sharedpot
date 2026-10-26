@@ -3,12 +3,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Expense, HouseSettings, SettlementRecord, SharedPotContribution } from './types/expense';
 import { AuthUser, SupabaseConfig } from './types/personal';
 import { DEFAULT_SETTINGS, INITIAL_EXPENSES, INITIAL_SETTLEMENTS, INITIAL_POT_CONTRIBUTIONS } from './utils/sampleData';
 import { calculateSummaries } from './utils/calculations';
-import { getCurrentUser, getSavedSupabaseConfig, logoutUser } from './lib/supabase';
+import {
+  getCurrentUser,
+  getSavedSupabaseConfig,
+  logoutUser,
+  loadRoommatesFromSupabase,
+  saveRoommatesToSupabase,
+  loadHouseSettingsFromSupabase,
+  saveHouseSettingsToSupabase,
+  loadHouseExpensesFromSupabase,
+  saveHouseExpenseToSupabase,
+  deleteHouseExpenseFromSupabase,
+  loadSettlementsFromSupabase,
+  saveSettlementToSupabase,
+  deleteSettlementFromSupabase,
+  loadPotContributionsFromSupabase,
+  savePotContributionToSupabase,
+  deletePotContributionFromSupabase,
+  syncRoommateBalancesToSupabase,
+  syncAllHouseDataToSupabase,
+} from './lib/supabase';
 import { Header } from './components/Header';
 import { RoommateCards } from './components/RoommateCards';
 import { SettlementBar } from './components/SettlementBar';
@@ -140,7 +159,9 @@ export default function App() {
     settings.roommates
   );
 
-  const sharedPotBalance = React.useMemo(() => {
+  const summariesList = useMemo(() => Object.values(summaries), [summaries]);
+
+  const sharedPotBalance = useMemo(() => {
     const totalDeposited = potContributions.reduce((sum, c) => sum + c.amount, 0);
     const totalDeducted = expenses
       .filter((e) => e.paidFromPot)
@@ -148,11 +169,78 @@ export default function App() {
     return totalDeposited - totalDeducted;
   }, [potContributions, expenses]);
 
+  // Initial cloud synchronization from Supabase tables
+  useEffect(() => {
+    let isMounted = true;
+    async function loadInitialCloudData() {
+      try {
+        const [cloudRoommates, cloudSettings, cloudExpenses, cloudSettlements, cloudPot] =
+          await Promise.all([
+            loadRoommatesFromSupabase(),
+            loadHouseSettingsFromSupabase(),
+            loadHouseExpensesFromSupabase(),
+            loadSettlementsFromSupabase(),
+            loadPotContributionsFromSupabase(),
+          ]);
+
+        if (!isMounted) return;
+
+        // 1. Roommates Table
+        if (cloudRoommates && cloudRoommates.length > 0) {
+          setSettings((prev) => ({ ...prev, roommates: cloudRoommates }));
+        } else {
+          // Table exists but is empty -> seed initial roommates
+          saveRoommatesToSupabase(settings.roommates);
+        }
+
+        // 2. House Settings Table
+        if (cloudSettings) {
+          setSettings((prev) => ({
+            ...prev,
+            houseName: cloudSettings.houseName || prev.houseName,
+            currency: cloudSettings.currency || prev.currency,
+            sharedPotSettings: cloudSettings.sharedPotSettings || prev.sharedPotSettings,
+          }));
+        }
+
+        // 3. House Expenses Table
+        if (cloudExpenses && cloudExpenses.length > 0) {
+          setExpenses(cloudExpenses);
+        }
+
+        // 4. Settlements Table
+        if (cloudSettlements) {
+          setSettlements(cloudSettlements);
+        }
+
+        // 5. Pot Contributions Table
+        if (cloudPot && cloudPot.length > 0) {
+          setPotContributions(cloudPot);
+        }
+      } catch (e) {
+        console.warn('Startup Supabase sync check:', e);
+      }
+    }
+
+    loadInitialCloudData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Continuous sync of calculated live financial numbers to Supabase roommate_balances table
+  useEffect(() => {
+    if (summariesList && summariesList.length > 0) {
+      syncRoommateBalancesToSupabase(summariesList);
+    }
+    saveHouseSettingsToSupabase(settings, sharedPotBalance);
+  }, [summariesList, sharedPotBalance, settings]);
+
   // Handlers for House Split
   const handleSaveExpense = (expense: Expense) => {
     if (editingExpense) {
       setExpenses((prev) => prev.map((e) => (e.id === expense.id ? expense : e)));
-      showToast('Expense updated successfully');
+      showToast('Expense updated in Supabase table');
     } else {
       setExpenses((prev) => [expense, ...prev]);
       if (expense.paidFromPot) {
@@ -162,12 +250,15 @@ export default function App() {
         showToast(`Added ${expense.title} · ¥${share.toLocaleString()}/person`);
       }
     }
+    // Update row in Supabase house_expenses table
+    saveHouseExpenseToSupabase(expense);
     setEditingExpense(null);
   };
 
   const handleDeleteExpense = (id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-    showToast('Expense deleted');
+    deleteHouseExpenseFromSupabase(id);
+    showToast('Expense deleted from Supabase table');
   };
 
   const handleEditExpense = (expense: Expense) => {
@@ -177,34 +268,48 @@ export default function App() {
 
   const handleRecordSettlement = (newSettlement: SettlementRecord) => {
     setSettlements((prev) => [newSettlement, ...prev]);
-    showToast('Payment settled and recorded in ledger');
+    saveSettlementToSupabase(newSettlement);
+    showToast('Payment settled and recorded in Supabase table');
   };
 
   const handleDeleteSettlement = (id: string) => {
     setSettlements((prev) => prev.filter((s) => s.id !== id));
-    showToast('Settlement payment removed');
+    deleteSettlementFromSupabase(id);
+    showToast('Settlement removed from Supabase table');
   };
 
   // Shared Pot handlers
   const handleAddPotContribution = (newContribution: SharedPotContribution) => {
     setPotContributions((prev) => [newContribution, ...prev]);
+    savePotContributionToSupabase(newContribution);
     showToast(`Deposited ¥${newContribution.amount.toLocaleString()} into Shared Pot 🍯`);
   };
 
   const handleDeletePotContribution = (id: string) => {
     setPotContributions((prev) => prev.filter((c) => c.id !== id));
-    showToast('Pot deposit removed');
+    deletePotContributionFromSupabase(id);
+    showToast('Pot deposit removed from Supabase table');
   };
 
   const handleUpdatePotSettings = (monthlyAmount: number) => {
-    setSettings((prev) => ({
-      ...prev,
+    const updated = {
+      ...settings,
       sharedPotSettings: {
-        ...prev.sharedPotSettings,
+        ...settings.sharedPotSettings,
         monthlyContributionPerPerson: monthlyAmount,
       },
-    }));
+    };
+    setSettings(updated);
+    saveHouseSettingsToSupabase(updated, sharedPotBalance);
     showToast(`Shared Pot monthly target set to ¥${monthlyAmount.toLocaleString()} / person`);
+  };
+
+  // Save Settings handler: Saves roommate names and house settings to Supabase
+  const handleSaveSettings = (newSettings: HouseSettings) => {
+    setSettings(newSettings);
+    saveRoommatesToSupabase(newSettings.roommates);
+    saveHouseSettingsToSupabase(newSettings, sharedPotBalance);
+    showToast('Roommate names & house settings saved to Supabase!');
   };
 
   const handleResetSampleData = () => {
@@ -212,7 +317,9 @@ export default function App() {
     setSettlements(INITIAL_SETTLEMENTS);
     setPotContributions(INITIAL_POT_CONTRIBUTIONS);
     setSettings(DEFAULT_SETTINGS);
-    showToast('Sample sharehouse data restored');
+    saveRoommatesToSupabase(DEFAULT_SETTINGS.roommates);
+    saveHouseSettingsToSupabase(DEFAULT_SETTINGS, 45000);
+    showToast('Sample sharehouse data restored and synced to Supabase');
   };
 
   const handleClearAllData = () => {
@@ -260,13 +367,30 @@ export default function App() {
         }
         if (parsed.settings) {
           setSettings(parsed.settings);
+          saveRoommatesToSupabase(parsed.settings.roommates);
         }
-        showToast('Data successfully restored from file!');
+        showToast('Data successfully restored and synced!');
       } catch {
         alert('Invalid backup JSON file');
       }
     };
     reader.readAsText(file);
+  };
+
+  // Push all existing data into Supabase tables in one batch
+  const handleSyncAllData = async () => {
+    const res = await syncAllHouseDataToSupabase(
+      settings,
+      expenses,
+      settlements,
+      potContributions,
+      summariesList,
+      sharedPotBalance
+    );
+    if (res.success) {
+      showToast('All 9 tables synced to Supabase!');
+    }
+    return res;
   };
 
   const handleLogout = async () => {
@@ -277,7 +401,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF9] text-stone-800 flex flex-col font-sans selection:bg-orange-500/20 selection:text-orange-700">
-      
       {/* Top Header */}
       <Header
         settings={settings}
@@ -298,29 +421,34 @@ export default function App() {
         supabaseConfig={supabaseConfig}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6 pb-28 sm:pb-8 space-y-5 sm:space-y-6">
-        
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 pb-28 sm:pb-12">
         {activeMode === 'personal' ? (
-          /* PERSONAL POCKETBOOK VIEW (User Account with isolated balance & spendings) */
-          <section aria-label="Personal pocketbook">
-            <PersonalLedgerView
-              currentUser={currentUser}
-              onOpenAuth={() => setIsAuthModalOpen(true)}
-              onLogout={handleLogout}
-              onOpenSupabaseSettings={() => setIsSupabaseModalOpen(true)}
-              supabaseConfig={supabaseConfig}
-              currency={settings.currency}
-            />
-          </section>
+          /* ================= MODE: PERSONAL POCKETBOOK ================= */
+          <PersonalLedgerView
+            currentUser={currentUser}
+            onOpenAuth={() => setIsAuthModalOpen(true)}
+            onLogout={handleLogout}
+            onOpenSupabaseSettings={() => setIsSupabaseModalOpen(true)}
+            supabaseConfig={supabaseConfig}
+            currency={settings.currency}
+          />
         ) : (
-          /* HOUSE SPLIT (÷ 3) VIEW */
+          /* ================= MODE: HOUSE 3-WAY SPLIT & POT ================= */
           <>
-            {/* TAB 1: EXPENSES (3-way equal split ledger & debt settlements) */}
+            {/* TAB 1: EXPENSES & SPLIT OVERVIEW */}
             {activeTab === 'expenses' && (
               <>
-                {/* 3-Roommate Breakdown & Totals */}
-                <section aria-label="Roommate balances">
+                {/* 3 Roommates Balances (Alex, Sam, Jordan) */}
+                <section aria-label="Roommate balances" className="mb-4 sm:mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-500">
+                      Roommate Balances (Equal 3-Way Split)
+                    </h2>
+                    <span className="text-[11px] text-stone-400 hidden sm:inline">
+                      Auto-balanced · Net effective totals
+                    </span>
+                  </div>
                   <RoommateCards
                     roommates={settings.roommates}
                     summaries={summaries}
@@ -328,12 +456,15 @@ export default function App() {
                     totalPerPersonAvg={totalPerPersonAvg}
                     currency={settings.currency}
                     sharedPotBalance={sharedPotBalance}
-                    onSwitchToPot={() => setActiveTab('pot')}
+                    onSwitchToPot={() => {
+                      setActiveMode('house');
+                      setActiveTab('pot');
+                    }}
                   />
                 </section>
 
-                {/* Settlement Summary / Who Owes Whom */}
-                <section aria-label="Debt settlements">
+                {/* Settlement Suggestion / Quick Settle Bar */}
+                <section aria-label="Debt settlements" className="mb-4 sm:mb-6">
                   <SettlementBar
                     debtTransfers={debtTransfers}
                     roommates={settings.roommates}
@@ -344,30 +475,8 @@ export default function App() {
                   />
                 </section>
 
-                <section aria-label="Expense ledger">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h2 className="text-base font-bold text-stone-900 tracking-tight flex items-center gap-2">
-                        <span>Shared Expenses</span>
-                        <span className="text-lg select-none">🧾</span>
-                      </h2>
-                      <p className="text-xs text-stone-500">
-                        All shared bills timestamped with date & time, divided equally by 3 or paid from pot
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setEditingExpense(null);
-                        setIsExpenseModalOpen(true);
-                      }}
-                      className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-xl shadow-sm hover:shadow transition-all"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                      <span>Add Expense</span>
-                    </button>
-                  </div>
-
+                {/* Expense List */}
+                <section aria-label="Recent house expenses">
                   <ExpenseList
                     expenses={expenses}
                     roommates={settings.roommates}
@@ -426,26 +535,26 @@ export default function App() {
         )}
       </main>
 
-      {/* Floating Action Button on mobile for fast expense entry (positioned above bottom nav) */}
+      {/* Floating Action Button on mobile for fast expense entry */}
       {activeMode === 'house' && (
-        <div className="sm:hidden fixed bottom-20 right-4 z-30">
+        <div className="fixed right-4 bottom-20 z-40 sm:hidden">
           <button
             onClick={() => {
               setEditingExpense(null);
               setIsExpenseModalOpen(true);
             }}
-            className="w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 active:scale-90 text-white font-bold flex items-center justify-center shadow-lg shadow-orange-500/35 border-2 border-white/60 transition-transform"
-            aria-label="Add new expense"
+            aria-label="Add House Expense"
+            className="w-14 h-14 rounded-full bg-orange-600 hover:bg-orange-500 text-white shadow-lg shadow-orange-600/30 active:scale-95 flex items-center justify-center transition-all"
           >
             <Plus className="w-6 h-6 stroke-[2.5]" />
           </button>
         </div>
       )}
 
-      {/* Mobile Ergonomic Bottom Navigation Bar (Thumb Zone) */}
+      {/* Mobile Bottom Navigation Bar */}
       <nav
         aria-label="Mobile Navigation"
-        className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-2 py-1.5 pb-[max(0.6rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none"
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/80 px-2 py-1.5 flex items-center justify-around sm:hidden shadow-lg"
       >
         {/* Tab 1: Expenses */}
         <button
@@ -453,20 +562,17 @@ export default function App() {
             setActiveMode('house');
             setActiveTab('expenses');
           }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all relative ${
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all ${
             activeMode === 'house' && activeTab === 'expenses'
               ? 'text-orange-600 font-bold'
               : 'text-stone-500 hover:text-stone-800'
           }`}
         >
-          <div className="relative">
-            <Receipt className={`w-5 h-5 ${activeMode === 'house' && activeTab === 'expenses' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-            {expenses.length > 0 && (
-              <span className="absolute -top-1 -right-2 bg-stone-800 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px] text-center">
-                {expenses.length}
-              </span>
-            )}
-          </div>
+          <Receipt
+            className={`w-5 h-5 ${
+              activeMode === 'house' && activeTab === 'expenses' ? 'stroke-[2.5]' : 'stroke-2'
+            }`}
+          />
           <span className="text-[10px] mt-0.5 tracking-tight">Expenses</span>
         </button>
 
@@ -503,7 +609,11 @@ export default function App() {
               : 'text-stone-500 hover:text-stone-800'
           }`}
         >
-          <BarChart3 className={`w-5 h-5 ${activeMode === 'house' && activeTab === 'analytics' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <BarChart3
+            className={`w-5 h-5 ${
+              activeMode === 'house' && activeTab === 'analytics' ? 'stroke-[2.5]' : 'stroke-2'
+            }`}
+          />
           <span className="text-[10px] mt-0.5 tracking-tight">Charts</span>
         </button>
 
@@ -517,7 +627,9 @@ export default function App() {
           }`}
         >
           <div className="relative">
-            <Wallet className={`w-5 h-5 ${activeMode === 'personal' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+            <Wallet
+              className={`w-5 h-5 ${activeMode === 'personal' ? 'stroke-[2.5]' : 'stroke-2'}`}
+            />
             {currentUser && (
               <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
             )}
@@ -544,10 +656,7 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}
-        onSaveSettings={(newSettings) => {
-          setSettings(newSettings);
-          showToast('Settings updated');
-        }}
+        onSaveSettings={handleSaveSettings}
         onResetSampleData={handleResetSampleData}
         onClearAllData={handleClearAllData}
         onExportJson={handleExportJson}
@@ -555,10 +664,7 @@ export default function App() {
       />
 
       {/* Receipt Preview Modal */}
-      <ReceiptModal
-        url={viewingReceiptUrl}
-        onClose={() => setViewingReceiptUrl(null)}
-      />
+      <ReceiptModal url={viewingReceiptUrl} onClose={() => setViewingReceiptUrl(null)} />
 
       {/* Personal Account Auth Modal */}
       <PersonalAuthModal
@@ -571,7 +677,7 @@ export default function App() {
         }}
       />
 
-      {/* Supabase Connection Modal */}
+      {/* Supabase Connection & Tables Modal */}
       <SupabaseSettingsModal
         isOpen={isSupabaseModalOpen}
         onClose={() => setIsSupabaseModalOpen(false)}
@@ -579,6 +685,7 @@ export default function App() {
           setSupabaseConfig(newCfg);
           showToast('Supabase Cloud configuration saved');
         }}
+        onSyncAllData={handleSyncAllData}
       />
 
       {/* Toast Notification */}
@@ -592,7 +699,9 @@ export default function App() {
       {/* Subtle Footer */}
       <footer className="border-t border-stone-200/80 py-5 text-center text-xs text-stone-500 bg-white/50 mb-14 sm:mb-0">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span className="font-medium text-stone-600">{settings.houseName} · Sharehouse Pot & Pocketbook</span>
+          <span className="font-medium text-stone-600">
+            {settings.houseName} · Sharehouse Pot & Pocketbook
+          </span>
           <div className="flex items-center gap-3 text-stone-400">
             <span>Shared Pot (¥)</span>
             <span>·</span>
