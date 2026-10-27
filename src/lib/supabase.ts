@@ -512,7 +512,7 @@ export async function saveHouseSettingsToSupabase(
   if (!client || !config.isConnected) return;
 
   try {
-    const { error } = const { error: supabaseWriteError3 } = await client.from('house_settings').upsert({
+    const { error: supabaseWriteError3 } = await client.from('house_settings').upsert({
       id: 'house_main',
       house_name: settings.houseName || 'Une Maison',
       currency: settings.currency || '¥',
