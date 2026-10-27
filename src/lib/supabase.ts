@@ -450,6 +450,66 @@ export async function saveRoommatesToSupabase(roommates: Roommate[]): Promise<vo
 
 // ==================== HOUSE SETTINGS TABLE SERVICE ====================
 
+export async function loadHouseSettingsFromSupabase(): Promise<HouseSettings | null> {
+  const config = getSavedSupabaseConfig();
+  const client = getSupabaseClient(config);
+  if (!client || !config.isConnected) return null;
+
+  try {
+    const { data, error } = await client
+      .from('house_settings')
+      .select('*')
+      .eq('id', 'house_main')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Failed to load house settings from Supabase:', error);
+      return null;
+    }
+    if (!data) return null;
+
+    return {
+      houseName: data.house_name || 'Une Maison',
+      currency: data.currency || '¥',
+      roommates: [],
+      sharedPotSettings: {
+        monthlyContributionPerPerson: Number(data.pot_monthly_target) || 30000,
+        potName: data.pot_name || 'Une Maison Shared Pot',
+      },
+    };
+  } catch (e) {
+    console.warn('Failed to load house settings from Supabase:', e);
+    return null;
+  }
+}
+
+export async function saveHouseSettingsToSupabase(
+  settings: HouseSettings,
+  potBalance: number
+): Promise<void> {
+  const config = getSavedSupabaseConfig();
+  const client = getSupabaseClient(config);
+  if (!client || !config.isConnected) return;
+
+  try {
+    const { error } = await client.from('house_settings').upsert({
+      id: 'house_main',
+      house_name: settings.houseName || 'Une Maison',
+      currency: settings.currency || '¥',
+      pot_monthly_target: settings.sharedPotSettings?.monthlyContributionPerPerson ?? 30000,
+      pot_name: settings.sharedPotSettings?.potName || 'Une Maison Shared Pot',
+      pot_balance: Number.isFinite(potBalance) ? potBalance : 0,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn('Failed saving house settings to Supabase:', error);
+    }
+  } catch (e) {
+    console.warn('Failed saving house settings to Supabase:', e);
+  }
+}
+
 export async function loadHouseExpensesFromSupabase(): Promise<Expense[]> {
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
