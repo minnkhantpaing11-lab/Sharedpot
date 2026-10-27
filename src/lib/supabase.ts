@@ -24,21 +24,29 @@ export const DEFAULT_SUPABASE_URL =
   (import.meta.env.VITE_SUPABASE_URL as string)?.trim() ||
   'https://unemaison-finance.supabase.co';
 
-export const DEFAULT_SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string)?.trim() ||
+// Never ship a fabricated fallback key. Supabase requires the real anon/publishable
+// key from the project's API settings, supplied through VITE_SUPABASE_ANON_KEY.
+const LEGACY_PLACEHOLDER_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuZW1haXNvbi1maW5hbmNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM5ODAwMDAsImV4cCI6MjAyMDMzNjAwMH0.M3BvY2tldGJvb2stZGVmYXVsdC1zdXBhYmFzZS1rZXk';
 
-// Get Supabase configuration - Always returns isConnected: true with project credentials
+export const DEFAULT_SUPABASE_ANON_KEY =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string)?.trim() || '';
+
+// Return connected only when real project credentials are available.
 export function getSavedSupabaseConfig(): SupabaseConfig {
   try {
     const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed.url && parsed.anonKey) {
+      const savedKey = typeof parsed.anonKey === 'string' ? parsed.anonKey.trim() : '';
+      const isLegacyPlaceholder = savedKey === LEGACY_PLACEHOLDER_ANON_KEY;
+      const url = (typeof parsed.url === 'string' && parsed.url.trim()) || DEFAULT_SUPABASE_URL;
+      const anonKey = isLegacyPlaceholder ? DEFAULT_SUPABASE_ANON_KEY : (savedKey || DEFAULT_SUPABASE_ANON_KEY);
+      if (url && anonKey) {
         return {
-          url: parsed.url.trim(),
-          anonKey: parsed.anonKey.trim(),
-          isConnected: true, // Always connected!
+          url: url.trim(),
+          anonKey,
+          isConnected: true,
           autoSync: parsed.autoSync !== false,
         };
       }
@@ -50,16 +58,18 @@ export function getSavedSupabaseConfig(): SupabaseConfig {
   return {
     url: DEFAULT_SUPABASE_URL,
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
-    isConnected: true,
+    isConnected: Boolean(DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_ANON_KEY),
     autoSync: true,
   };
 }
 
 export function saveSupabaseConfig(config: SupabaseConfig) {
+  const url = config.url.trim() || DEFAULT_SUPABASE_URL;
+  const anonKey = config.anonKey.trim();
   const normalized: SupabaseConfig = {
-    url: config.url.trim() || DEFAULT_SUPABASE_URL,
-    anonKey: config.anonKey.trim() || DEFAULT_SUPABASE_ANON_KEY,
-    isConnected: true, // Keep always connected
+    url,
+    anonKey,
+    isConnected: Boolean(url && anonKey),
     autoSync: config.autoSync !== false,
   };
   localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(normalized));
@@ -84,7 +94,7 @@ let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(config?: SupabaseConfig): SupabaseClient | null {
   const activeConfig = config || getSavedSupabaseConfig();
-  if (!activeConfig.url || !activeConfig.anonKey) {
+  if (!activeConfig.isConnected || !activeConfig.url || !activeConfig.anonKey) {
     supabaseInstance = null;
     return null;
   }
@@ -110,8 +120,14 @@ export async function testSupabaseConnection(
   anonKey: string
 ): Promise<{ success: boolean; latencyMs?: number; error?: string }> {
   try {
-    const targetUrl = url.trim() || DEFAULT_SUPABASE_URL;
-    const targetKey = anonKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
+    const targetUrl = url.trim();
+    const targetKey = anonKey.trim();
+    if (!targetUrl || !targetKey || targetKey === LEGACY_PLACEHOLDER_ANON_KEY) {
+      return {
+        success: false,
+        error: 'Missing or invalid Supabase credentials. Add the Project URL and anon/publishable key from Supabase Project Settings → API.',
+      };
+    }
 
     const start = performance.now();
     const testClient = createClient(targetUrl, targetKey);
