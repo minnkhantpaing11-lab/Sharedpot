@@ -807,54 +807,6 @@ export async function loadUserSpendings(
   }));
 }
 
-  // Local storage isolated by userId
-  try {
-    const raw = localStorage.getItem(getExpensesStorageKey(userId));
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed reading user spendings', e);
-  }
-
-  const initialUserSpendings: PersonalExpense[] = [
-    {
-      id: 'pexp-1',
-      userId,
-      subject: 'Convenience Store Lunch',
-      amount: 850,
-      category: 'food',
-      notes: 'Bento & Green Tea at 7-Eleven',
-      date: new Date().toISOString().split('T')[0],
-      time: '12:30',
-      timestamp: Date.now() - 3600000 * 4,
-    },
-    {
-      id: 'pexp-2',
-      userId,
-      subject: 'Iced Latte',
-      amount: 480,
-      category: 'coffee',
-      notes: 'Morning coffee',
-      date: new Date().toISOString().split('T')[0],
-      time: '08:45',
-      timestamp: Date.now() - 3600000 * 8,
-    },
-    {
-      id: 'pexp-3',
-      userId,
-      subject: 'Subway Train IC Card Top-up',
-      amount: 2000,
-      category: 'transport',
-      notes: 'Suica / Pasmo transit refill',
-      date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-      time: '18:15',
-      timestamp: Date.now() - 86400000,
-    },
-  ];
-
-  localStorage.setItem(getExpensesStorageKey(userId), JSON.stringify(initialUserSpendings));
-  return initialUserSpendings;
-}
-
 // Add personal expense
 export async function addPersonalExpense(expense: PersonalExpense): Promise<void> {
   const existing = await loadUserSpendings(expense.userId);
