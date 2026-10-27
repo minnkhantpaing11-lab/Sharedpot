@@ -87,7 +87,9 @@ export function resetToDefaultSupabaseConfig(): SupabaseConfig {
 }
 
 export function isUsingDefaultConfig(config: SupabaseConfig): boolean {
-  return config.url === DEFAULT_SUPABASE_URL && config.anonKey === DEFAULT_SUPABASE_ANON_KEY;
+  return Boolean(DEFAULT_SUPABASE_ANON_KEY) &&
+    config.url === DEFAULT_SUPABASE_URL &&
+    config.anonKey === DEFAULT_SUPABASE_ANON_KEY;
 }
 
 let supabaseInstance: SupabaseClient | null = null;
