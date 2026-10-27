@@ -46,6 +46,7 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
   if (!isOpen) return null;
 
   const isDefault = isUsingDefaultConfig(config);
+  const isConfigured = Boolean(config.url.trim() && config.anonKey.trim());
 
   const handleTest = async () => {
     setTesting(true);
@@ -98,7 +99,7 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
       ...config,
       url: config.url.trim(),
       anonKey: config.anonKey.trim(),
-      isConnected: true, // Always connected
+      isConnected: Boolean(config.url.trim() && config.anonKey.trim()),
       autoSync: true,
     };
     saveSupabaseConfig(updated);
@@ -153,8 +154,8 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
           <div>
             <h2 className="text-base sm:text-lg font-bold text-stone-900 leading-tight flex items-center gap-2">
               <span>Supabase Database Tables</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Always Connected
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${isConfigured ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                {isConfigured ? 'Credentials entered' : 'Setup required'}
               </span>
             </h2>
             <p className="text-xs text-stone-500">
@@ -164,18 +165,20 @@ export const SupabaseSettingsModal: React.FC<SupabaseSettingsModalProps> = ({
         </div>
 
         {/* Live Status banner */}
-        <div className="p-3.5 rounded-xl border text-xs bg-emerald-50/80 border-emerald-200 text-emerald-950 mb-4 space-y-1.5">
+        <div className={`p-3.5 rounded-xl border text-xs mb-4 space-y-1.5 ${isConfigured ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950' : 'bg-amber-50 border-amber-200 text-amber-950'}`}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 font-bold text-emerald-900">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Status: Connected to Supabase</span>
+            <div className={`flex items-center gap-2 font-bold ${isConfigured ? 'text-emerald-900' : 'text-amber-900'}`}>
+              <span className={`w-2.5 h-2.5 rounded-full ${isConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              <span>{isConfigured ? 'Credentials configured — connection not yet verified' : 'Status: Supabase setup required'}</span>
             </div>
             <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
               {isDefault ? 'Default Shared Cloud' : 'Custom Project'}
             </span>
           </div>
-          <p className="text-[11px] text-emerald-800 leading-relaxed">
-            Every update to roommate names, expenses, balances, pot contributions, and accounts automatically updates corresponding rows in your Supabase tables.
+          <p className={`text-[11px] leading-relaxed ${isConfigured ? 'text-emerald-800' : 'text-amber-900'}`}>
+            {isConfigured
+              ? 'Credentials are present. Use Test Connection, then Sync All Rows. A successful connection test alone does not guarantee table write permissions.'
+              : 'The app has no valid Supabase anon/publishable key. Get it from Supabase Project Settings → API, enter it below, save, and test the connection. Changes are currently local only.'}
           </p>
           {!isDefault && (
             <div className="pt-1 flex justify-end">
