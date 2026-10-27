@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, ShieldCheck, ArrowRight, Database } from 'lucide-react';
+import { X, Lock, User, ShieldCheck, ArrowRight, Database } from 'lucide-react';
 import { AuthUser } from '../../types/personal';
 import { loginUser, signUpUser, getSavedSupabaseConfig } from '../../lib/supabase';
 
@@ -15,7 +15,7 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
   onSuccess,
 }) => {
   const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,15 +28,24 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    if (!email.trim() || !password.trim()) {
-      setErrorMsg('Please enter both email and password.');
+    const normalizedUsername = username.trim().toLowerCase();
+    if (!normalizedUsername || !password.trim()) {
+      setErrorMsg('Please enter both username and password.');
       return;
     }
+    if (!/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+      setErrorMsg('Username must be 3–24 characters and use only letters, numbers, or underscores.');
+      return;
+    }
+
+    // Supabase Auth currently requires an email identifier. Use a non-deliverable
+    // internal alias so people can sign in with a username without providing email.
+    const authAlias = `${normalizedUsername}@users.sharedpot.invalid`;
 
     setLoading(true);
     try {
       if (isSignUp) {
-        const res = await signUpUser(email, password, name);
+        const res = await signUpUser(authAlias, password, name.trim() || normalizedUsername);
         if (res.error) {
           setErrorMsg(res.error);
         } else {
@@ -44,7 +53,7 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
           onClose();
         }
       } else {
-        const res = await loginUser(email, password);
+        const res = await loginUser(authAlias, password);
         if (res.error) {
           setErrorMsg(res.error);
         } else {
@@ -131,16 +140,19 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-stone-700 mb-1">
-              Email Address
+              Username
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
-                type="email"
+                type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                autoComplete="username"
+                minLength={3}
+                maxLength={24}
+                value={username}
+                onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
+                placeholder="e.g. minn_khant"
                 className="w-full pl-9 pr-3.5 py-2.5 text-base sm:text-sm bg-stone-50 border border-stone-300 rounded-xl text-stone-900 placeholder-stone-400 focus:outline-none focus:border-orange-500 focus:bg-white"
               />
             </div>
