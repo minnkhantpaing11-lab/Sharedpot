@@ -46,16 +46,16 @@ export const PersonalAuthModal: React.FC<PersonalAuthModalProps> = ({
     try {
       if (isSignUp) {
         const res = await signUpUser(authAlias, password, name.trim() || normalizedUsername);
-        if (res.error) {
-          setErrorMsg(res.error);
+        if (res.error || !res.user) {
+          setErrorMsg(res.error || 'Authentication failed. Please try again.');
         } else {
           onSuccess(res.user);
           onClose();
         }
       } else {
         const res = await loginUser(authAlias, password);
-        if (res.error) {
-          setErrorMsg(res.error);
+        if (res.error || !res.user) {
+          setErrorMsg(res.error || 'Authentication failed. Please try again.');
         } else {
           onSuccess(res.user);
           onClose();
