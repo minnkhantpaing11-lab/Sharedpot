@@ -376,7 +376,7 @@ export async function signUpUser(
   // so username, password, email, and display name are visible in Supabase Table Editor
   if (client && config.isConnected) {
     try {
-      await client.from('user_accounts').upsert({
+      const { error: supabaseWriteError1 } = await client.from('user_accounts').upsert({
         id: assignedId,
         email: trimmedEmail,
         username: displayName,
@@ -384,7 +384,8 @@ export async function signUpUser(
         display_name: displayName,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      });
+      }); 
+    if (supabaseWriteError1) throw supabaseWriteError1;
     } catch (e) {
       console.warn('Failed inserting into user_accounts table:', e);
     }
@@ -460,7 +461,8 @@ export async function saveRoommatesToSupabase(roommates: Roommate[]): Promise<vo
       updated_at: new Date().toISOString(),
     }));
 
-    await client.from('roommates').upsert(rows);
+    const { error: supabaseWriteError2 } = await client.from('roommates').upsert(rows); 
+    if (supabaseWriteError2) throw supabaseWriteError2;
   } catch (e) {
     console.warn('Failed saving roommates to Supabase:', e);
   }
@@ -510,7 +512,7 @@ export async function saveHouseSettingsToSupabase(
   if (!client || !config.isConnected) return;
 
   try {
-    const { error } = await client.from('house_settings').upsert({
+    const { error } = const { error: supabaseWriteError3 } = await client.from('house_settings').upsert({
       id: 'house_main',
       house_name: settings.houseName || 'Une Maison',
       currency: settings.currency || '¥',
@@ -518,7 +520,8 @@ export async function saveHouseSettingsToSupabase(
       pot_name: settings.sharedPotSettings?.potName || 'Une Maison Shared Pot',
       pot_balance: Number.isFinite(potBalance) ? potBalance : 0,
       updated_at: new Date().toISOString(),
-    });
+    }); 
+    if (supabaseWriteError3) throw supabaseWriteError3;
 
     if (error) {
       console.warn('Failed saving house settings to Supabase:', error);
@@ -572,7 +575,7 @@ export async function saveHouseExpenseToSupabase(expense: Expense): Promise<void
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('house_expenses').upsert({
+    const { error: supabaseWriteError4 } = await client.from('house_expenses').upsert({
       id: expense.id,
       title: expense.title,
       amount: expense.amount,
@@ -586,7 +589,8 @@ export async function saveHouseExpenseToSupabase(expense: Expense): Promise<void
       receipt_url: expense.receiptUrl || null,
       paid_from_pot: Boolean(expense.paidFromPot),
       created_at: new Date(expense.timestamp).toISOString(),
-    });
+    }); 
+    if (supabaseWriteError4) throw supabaseWriteError4;
   } catch (e) {
     console.warn('Failed saving house expense to Supabase:', e);
   }
@@ -598,7 +602,8 @@ export async function deleteHouseExpenseFromSupabase(expenseId: string): Promise
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('house_expenses').delete().eq('id', expenseId);
+    const { error: supabaseWriteError5 } = await client.from('house_expenses').delete().eq('id', expenseId); 
+    if (supabaseWriteError5) throw supabaseWriteError5;
   } catch (e) {
     console.warn('Failed deleting house expense from Supabase:', e);
   }
@@ -641,7 +646,7 @@ export async function saveSettlementToSupabase(settlement: SettlementRecord): Pr
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('settlements').upsert({
+    const { error: supabaseWriteError6 } = await client.from('settlements').upsert({
       id: settlement.id,
       from_id: settlement.fromId,
       to_id: settlement.toId,
@@ -651,7 +656,8 @@ export async function saveSettlementToSupabase(settlement: SettlementRecord): Pr
       timestamp: settlement.timestamp,
       note: settlement.note || null,
       created_at: new Date(settlement.timestamp).toISOString(),
-    });
+    }); 
+    if (supabaseWriteError6) throw supabaseWriteError6;
   } catch (e) {
     console.warn('Failed saving settlement to Supabase:', e);
   }
@@ -663,7 +669,8 @@ export async function deleteSettlementFromSupabase(settlementId: string): Promis
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('settlements').delete().eq('id', settlementId);
+    const { error: supabaseWriteError7 } = await client.from('settlements').delete().eq('id', settlementId); 
+    if (supabaseWriteError7) throw supabaseWriteError7;
   } catch (e) {
     console.warn('Failed deleting settlement from Supabase:', e);
   }
@@ -706,7 +713,7 @@ export async function savePotContributionToSupabase(contrib: SharedPotContributi
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('pot_contributions').upsert({
+    const { error: supabaseWriteError8 } = await client.from('pot_contributions').upsert({
       id: contrib.id,
       roommate_id: contrib.roommateId,
       month: contrib.month,
@@ -716,7 +723,8 @@ export async function savePotContributionToSupabase(contrib: SharedPotContributi
       timestamp: contrib.timestamp,
       note: contrib.note || null,
       created_at: new Date(contrib.timestamp).toISOString(),
-    });
+    }); 
+    if (supabaseWriteError8) throw supabaseWriteError8;
   } catch (e) {
     console.warn('Failed saving pot contribution to Supabase:', e);
   }
@@ -728,7 +736,8 @@ export async function deletePotContributionFromSupabase(contribId: string): Prom
   if (!client || !config.isConnected) return;
 
   try {
-    await client.from('pot_contributions').delete().eq('id', contribId);
+    const { error: supabaseWriteError9 } = await client.from('pot_contributions').delete().eq('id', contribId); 
+    if (supabaseWriteError9) throw supabaseWriteError9;
   } catch (e) {
     console.warn('Failed deleting pot contribution from Supabase:', e);
   }
@@ -757,7 +766,8 @@ export async function syncRoommateBalancesToSupabase(
       updated_at: new Date().toISOString(),
     }));
 
-    await client.from('roommate_balances').upsert(rows);
+    const { error: supabaseWriteError10 } = await client.from('roommate_balances').upsert(rows); 
+    if (supabaseWriteError10) throw supabaseWriteError10;
   } catch (e) {
     console.warn('Failed updating roommate balances in Supabase:', e);
   }
@@ -833,7 +843,7 @@ export async function saveUserBudget(
 
   if (client && config.isConnected) {
     try {
-      await client.from('personal_budgets').upsert({
+      const { error: supabaseWriteError11 } = await client.from('personal_budgets').upsert({
         user_id: budget.userId,
         starting_balance: budget.startingBalance,
         current_balance: currentBalance !== undefined ? currentBalance : budget.startingBalance,
@@ -841,7 +851,8 @@ export async function saveUserBudget(
         currency: budget.currency,
         period_label: budget.periodLabel || 'Current Period',
         updated_at: new Date().toISOString(),
-      });
+      }); 
+    if (supabaseWriteError11) throw supabaseWriteError11;
     } catch (e) {
       console.warn('Failed saving budget to Supabase', e);
     }
@@ -896,7 +907,7 @@ export async function addPersonalExpense(expense: PersonalExpense): Promise<void
 
   if (client && config.isConnected) {
     try {
-      await client.from('personal_spendings').upsert({
+      const { error: supabaseWriteError12 } = await client.from('personal_spendings').upsert({
         id: expense.id,
         user_id: expense.userId,
         subject: expense.subject,
@@ -906,7 +917,8 @@ export async function addPersonalExpense(expense: PersonalExpense): Promise<void
         date: expense.date,
         time: expense.time,
         created_at: new Date(expense.timestamp).toISOString(),
-      });
+      }); 
+    if (supabaseWriteError12) throw supabaseWriteError12;
     } catch (e) {
       console.warn('Failed to insert spending into Supabase', e);
     }
@@ -924,7 +936,8 @@ export async function deletePersonalExpense(userId: string, expenseId: string): 
 
   if (client && config.isConnected) {
     try {
-      await client.from('personal_spendings').delete().eq('id', expenseId).eq('user_id', userId);
+      const { error: supabaseWriteError13 } = await client.from('personal_spendings').delete().eq('id', expenseId).eq('user_id', userId); 
+    if (supabaseWriteError13) throw supabaseWriteError13;
     } catch (e) {
       console.warn('Failed deleting from Supabase', e);
     }
@@ -971,7 +984,8 @@ export async function syncAllHouseDataToSupabase(
         paid_from_pot: Boolean(e.paidFromPot),
         created_at: new Date(e.timestamp).toISOString(),
       }));
-      await client.from('house_expenses').upsert(expRows);
+      const { error: supabaseWriteError14 } = await client.from('house_expenses').upsert(expRows); 
+    if (supabaseWriteError14) throw supabaseWriteError14;
     }
 
     // 4. Sync Settlements
@@ -987,7 +1001,8 @@ export async function syncAllHouseDataToSupabase(
         note: s.note || null,
         created_at: new Date(s.timestamp).toISOString(),
       }));
-      await client.from('settlements').upsert(stRows);
+      const { error: supabaseWriteError15 } = await client.from('settlements').upsert(stRows); 
+    if (supabaseWriteError15) throw supabaseWriteError15;
     }
 
     // 5. Sync Pot Contributions
@@ -1003,7 +1018,8 @@ export async function syncAllHouseDataToSupabase(
         note: c.note || null,
         created_at: new Date(c.timestamp).toISOString(),
       }));
-      await client.from('pot_contributions').upsert(potRows);
+      const { error: supabaseWriteError16 } = await client.from('pot_contributions').upsert(potRows); 
+    if (supabaseWriteError16) throw supabaseWriteError16;
     }
 
     // 6. Sync Roommate Balances
