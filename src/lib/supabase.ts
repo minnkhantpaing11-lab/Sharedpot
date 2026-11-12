@@ -165,240 +165,150 @@ export function setCurrentUser(user: AuthUser | null) {
   }
 }
 
-interface LocalAccount {
-  id: string;
-  email: string;
-  passwordHash: string;
-  displayName: string;
+// Passwords are handled only by Supabase Auth. Never store them in public tables
+// or browser localStorage. The email-shaped identifier is an internal username alias.
+function usernameFromAuthAlias(alias: string): string {
+  return alias.split('@')[0].trim().toLowerCase();
 }
 
-function getLocalAccounts(): LocalAccount[] {
-  try {
-    const saved = localStorage.getItem(LOCAL_USERS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveLocalAccounts(accounts: LocalAccount[]) {
-  localStorage.setItem(LOCAL_USERS_STORAGE_KEY, JSON.stringify(accounts));
-}
-
-// Login: checks both Supabase `user_accounts` table + Auth, plus local fallback
+// Authenticate using Supabase Auth, then sync only non-sensitive profile fields.
 export async function loginUser(
-  email: string,
+  usernameOrAlias: string,
   pass: string,
   useSupabaseIfAvailable: boolean = true
-): Promise<{ user: AuthUser; error?: string }> {
-  const trimmedEmail = email.trim().toLowerCase();
+): Promise<{ user: AuthUser | null; error?: string }> {
+  if (!useSupabaseIfAvailable) {
+    return { user: null, error: 'Supabase authentication is required for secure login.' };
+  }
+
+  const identifier = usernameOrAlias.trim().toLowerCase();
+  const authAlias = identifier.includes('@') ? identifier : `${identifier}@users.sharedpot.invalid`;
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
 
-  // 1. First check Supabase user_accounts table directly
-  if (useSupabaseIfAvailable && client && config.isConnected) {
-    try {
-      const { data: dbAccount, error: dbErr } = await client
-        .from('user_accounts')
-        .select('*')
-        .eq('email', trimmedEmail)
-        .single();
-
-      if (!dbErr && dbAccount) {
-        if (dbAccount.password === pass) {
-          const authUser: AuthUser = {
-            id: dbAccount.id,
-            email: dbAccount.email,
-            displayName: dbAccount.display_name || dbAccount.username || trimmedEmail.split('@')[0],
-            isSupabase: true,
-          };
-          setCurrentUser(authUser);
-          // Also update updated_at timestamp in Supabase
-          client
-            .from('user_accounts')
-            .update({ updated_at: new Date().toISOString() })
-            .eq('id', dbAccount.id)
-            .then();
-          return { user: authUser };
-        } else {
-          return { user: null as any, error: 'Incorrect password. Please verify and try again.' };
-        }
-      }
-    } catch (e) {
-      console.warn('Supabase user_accounts table check error:', e);
-    }
-
-    // Attempt Supabase Auth Cloud Authentication
-    try {
-      const { data, error } = await client.auth.signInWithPassword({
-        email: trimmedEmail,
-        password: pass,
-      });
-
-      if (!error && data.user) {
-        const authUser: AuthUser = {
-          id: data.user.id,
-          email: data.user.email || trimmedEmail,
-          displayName: data.user.user_metadata?.name || trimmedEmail.split('@')[0],
-          isSupabase: true,
-        };
-        setCurrentUser(authUser);
-
-        // Keep user_accounts table row synced
-        client
-          .from('user_accounts')
-          .upsert({
-            id: data.user.id,
-            email: trimmedEmail,
-            username: authUser.displayName,
-            password: pass,
-            display_name: authUser.displayName,
-            updated_at: new Date().toISOString(),
-          })
-          .then();
-
-        return { user: authUser };
-      }
-    } catch (err: any) {
-      console.warn('Supabase cloud login notice, falling back:', err);
-    }
+  if (!client || !config.isConnected) {
+    return { user: null, error: 'Cannot sign in because Supabase is not connected.' };
   }
 
-  // 2. Local Account Verification & Fallback
-  const accounts = getLocalAccounts();
-  const existing = accounts.find((a) => a.email === trimmedEmail);
+  try {
+    const { data, error } = await client.auth.signInWithPassword({
+      email: authAlias,
+      password: pass,
+    });
 
-  if (existing) {
-    if (existing.passwordHash !== btoa(pass)) {
-      return { user: null as any, error: 'Incorrect password. Please try again.' };
+    if (error || !data.user) {
+      return { user: null, error: 'Incorrect username or password.' };
     }
+
+    const username = usernameFromAuthAlias(data.user.email || authAlias);
+    const profileResult = await client
+      .from('user_accounts')
+      .select('id, email, username, display_name')
+      .eq('email', authAlias)
+      .maybeSingle();
+
+    const displayName =
+      profileResult.data?.display_name ||
+      data.user.user_metadata?.name ||
+      profileResult.data?.username ||
+      username;
+
+    // This table contains profile data only; passwords remain exclusively in Supabase Auth.
+    const { error: profileWriteError } = await client.from('user_accounts').upsert({
+      id: data.user.id,
+      email: authAlias,
+      username,
+      display_name: displayName,
+      updated_at: new Date().toISOString(),
+    });
+    if (profileWriteError) {
+      console.warn('Signed in, but could not update the account profile:', profileWriteError.message);
+    }
+
     const authUser: AuthUser = {
-      id: existing.id,
-      email: existing.email,
-      displayName: existing.displayName,
+      id: data.user.id,
+      email: authAlias,
+      displayName,
       isSupabase: true,
     };
     setCurrentUser(authUser);
     return { user: authUser };
-  } else {
-    // If account doesn't exist, initialize it
-    const newId = 'usr_' + Math.random().toString(36).substring(2, 10);
-    const displayName = trimmedEmail.split('@')[0];
-    const newAccount: LocalAccount = {
-      id: newId,
-      email: trimmedEmail,
-      passwordHash: btoa(pass),
-      displayName,
-    };
-    accounts.push(newAccount);
-    saveLocalAccounts(accounts);
-
-    const authUser: AuthUser = {
-      id: newId,
-      email: trimmedEmail,
-      displayName,
-      isSupabase: true,
-    };
-    setCurrentUser(authUser);
-
-    // Save to Supabase user_accounts table row
-    if (client && config.isConnected) {
-      client
-        .from('user_accounts')
-        .upsert({
-          id: newId,
-          email: trimmedEmail,
-          username: displayName,
-          password: pass,
-          display_name: displayName,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .then();
-    }
-
-    return { user: authUser };
+  } catch (err: any) {
+    console.error('Supabase login failed:', err);
+    return { user: null, error: 'Could not reach Supabase. Check your connection and try again.' };
   }
 }
 
-// SignUp: saves directly to Supabase `user_accounts` row with username and password
+// Sign up through Supabase Auth. No password is written to user_accounts or localStorage.
 export async function signUpUser(
-  email: string,
+  usernameOrAlias: string,
   pass: string,
   name?: string
-): Promise<{ user: AuthUser; error?: string }> {
-  const trimmedEmail = email.trim().toLowerCase();
+): Promise<{ user: AuthUser | null; error?: string }> {
+  const identifier = usernameOrAlias.trim().toLowerCase();
+  const username = usernameFromAuthAlias(identifier);
+  const authAlias = identifier.includes('@') ? identifier : `${identifier}@users.sharedpot.invalid`;
+
+  if (!/^[a-z0-9_]{3,24}$/.test(username)) {
+    return { user: null, error: 'Username must be 3–24 characters and use only letters, numbers, or underscores.' };
+  }
+  if (pass.length < 8) {
+    return { user: null, error: 'Password must be at least 8 characters long.' };
+  }
+
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
-
-  const accounts = getLocalAccounts();
-  if (accounts.some((a) => a.email === trimmedEmail)) {
-    return { user: null as any, error: 'An account with this email already exists. Please log in.' };
+  if (!client || !config.isConnected) {
+    return { user: null, error: 'Cannot create an account because Supabase is not connected.' };
   }
 
-  let supabaseUserId: string | null = null;
-  const displayName = name?.trim() || trimmedEmail.split('@')[0];
+  const displayName = name?.trim() || username;
 
-  // Try cloud signup via Supabase Auth
-  if (client && config.isConnected) {
-    try {
-      const { data, error } = await client.auth.signUp({
-        email: trimmedEmail,
-        password: pass,
-        options: {
-          data: { name: displayName },
-        },
-      });
+  try {
+    const { data, error } = await client.auth.signUp({
+      email: authAlias,
+      password: pass,
+      options: { data: { name: displayName, username } },
+    });
 
-      if (!error && data?.user) {
-        supabaseUserId = data.user.id;
-      } else if (error) {
-        console.warn('Supabase cloud signup notice:', error.message);
-      }
-    } catch (err: any) {
-      console.warn('Supabase cloud signup error:', err);
+    if (error) {
+      return { user: null, error: error.message };
     }
-  }
-
-  const assignedId = supabaseUserId || ('usr_' + Math.random().toString(36).substring(2, 10));
-  
-  // Save to local cache
-  const newAccount: LocalAccount = {
-    id: assignedId,
-    email: trimmedEmail,
-    passwordHash: btoa(pass),
-    displayName,
-  };
-  accounts.push(newAccount);
-  saveLocalAccounts(accounts);
-
-  // CRITICAL: Save explicitly into Supabase `user_accounts` table row
-  // so username, password, email, and display name are visible in Supabase Table Editor
-  if (client && config.isConnected) {
-    try {
-      const { error: supabaseWriteError1 } = await client.from('user_accounts').upsert({
-        id: assignedId,
-        email: trimmedEmail,
-        username: displayName,
-        password: pass, // visible in user_accounts table
-        display_name: displayName,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }); 
-    if (supabaseWriteError1) throw supabaseWriteError1;
-    } catch (e) {
-      console.warn('Failed inserting into user_accounts table:', e);
+    if (!data.user) {
+      return { user: null, error: 'Supabase did not create the account. Please try again.' };
     }
-  }
+    if (!data.session) {
+      return {
+        user: null,
+        error: 'Username-only signup requires email confirmation to be disabled in Supabase Auth. No confirmation email can be sent to this internal username alias.',
+      };
+    }
 
-  const authUser: AuthUser = {
-    id: assignedId,
-    email: trimmedEmail,
-    displayName,
-    isSupabase: true,
-  };
-  setCurrentUser(authUser);
-  return { user: authUser };
+    const { error: profileWriteError } = await client.from('user_accounts').upsert({
+      id: data.user.id,
+      email: authAlias,
+      username,
+      display_name: displayName,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    if (profileWriteError) {
+      console.warn('Account created, but profile could not be saved:', profileWriteError.message);
+    }
+
+    const authUser: AuthUser = {
+      id: data.user.id,
+      email: authAlias,
+      displayName,
+      isSupabase: true,
+    };
+    setCurrentUser(authUser);
+    return { user: authUser };
+  } catch (err: any) {
+    console.error('Supabase signup failed:', err);
+    return { user: null, error: 'Could not reach Supabase. Check your connection and try again.' };
+  }
 }
 
 export async function logoutUser(): Promise<void> {
@@ -1117,16 +1027,18 @@ on conflict (id) do update set
   avatar_color = excluded.avatar_color,
   updated_at = now();
 
--- 2. USER ACCOUNTS TABLE (Username, password, email, and display name visible as rows)
+-- 2. USER ACCOUNTS TABLE (Profile metadata only; Supabase Auth stores password hashes)
 create table if not exists public.user_accounts (
   id text primary key,
   email text not null unique,
   username text,
-  password text not null,
   display_name text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Remove plaintext passwords left by earlier Pocketbook versions.
+alter table public.user_accounts drop column if exists password;
 
 -- 3. HOUSE SETTINGS & POT BALANCE TABLE
 create table if not exists public.house_settings (
