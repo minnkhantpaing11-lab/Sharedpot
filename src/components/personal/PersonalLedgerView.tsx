@@ -427,7 +427,7 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               <span className="text-xs text-stone-400 font-mono truncate hidden sm:inline">
                 ({currentUser.email})
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 {supabaseConfig.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ${supabaseConfig.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span>Supabase Cloud Sync</span>
               </span>
