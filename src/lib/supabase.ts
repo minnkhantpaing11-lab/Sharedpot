@@ -632,6 +632,7 @@ export async function loadSettlementsFromSupabase(): Promise<SettlementRecord[] 
         time: row.time,
         timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
         note: row.note,
+        isAdjustment: typeof row.note === 'string' && row.note.startsWith('[POT_BALANCE_ADJUSTMENT]'),
       }));
     }
   } catch (e) {
@@ -721,7 +722,9 @@ export async function savePotContributionToSupabase(contrib: SharedPotContributi
       date: contrib.date,
       time: contrib.time,
       timestamp: contrib.timestamp,
-      note: contrib.note || null,
+      note: contrib.isAdjustment
+        ? `[POT_BALANCE_ADJUSTMENT] ${contrib.note || 'Manual balance adjustment'}`
+        : contrib.note || null,
       created_at: new Date(contrib.timestamp).toISOString(),
     }); 
     if (supabaseWriteError8) throw supabaseWriteError8;
