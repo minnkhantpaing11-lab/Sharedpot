@@ -105,6 +105,7 @@ export function calculateSharedPotSummary(
   selectedMonth: string
 ): SharedPotSummary {
   let totalDeposited = 0;
+  let totalAdjustments = 0;
   let monthDeposited = 0;
 
   const roommateStatus: Record<RoommateId, {
@@ -118,12 +119,14 @@ export function calculateSharedPotSummary(
   };
 
   contributions.forEach((c) => {
+    if (c.isAdjustment) {
+      totalAdjustments += c.amount;
+      return;
+    }
     totalDeposited += c.amount;
     if (c.month === selectedMonth) {
       monthDeposited += c.amount;
-      if (roommateStatus[c.roommateId]) {
-        roommateStatus[c.roommateId].depositedThisMonth += c.amount;
-      }
+      if (roommateStatus[c.roommateId]) roommateStatus[c.roommateId].depositedThisMonth += c.amount;
     }
   });
 
@@ -149,7 +152,7 @@ export function calculateSharedPotSummary(
     }
   });
 
-  const currentBalance = totalDeposited - totalDeducted;
+  const currentBalance = totalDeposited + totalAdjustments - totalDeducted;
   const totalMonthlyTarget = monthlyTargetPerPerson * (roommates.length || 3);
 
   return {
