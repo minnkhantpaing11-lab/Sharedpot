@@ -901,54 +901,117 @@ export async function loadUserSpendings(
   }));
 }
 
-// Add personal expense
+// Add personal expense. Write to Supabase first so a failed cloud write is never
+// reported as a successful save or hidden behind a local-only update.
 export async function addPersonalExpense(expense: PersonalExpense): Promise<void> {
-  const existing = await loadUserSpendings(expense.userId);
-  const updated = [expense, ...existing.filter((e) => e.id !== expense.id)];
+  const config = getSavedSupabaseConfig();
+  const client = getSupabaseClient(config);
+
+  if (!client || !config.isConnected) {
+    throw new Error('Supabase is not connected. Connect Supabase before saving personal spendings.');
+  }
+
+  const { error } = await client.from('personal_spendings').upsert({
+    id: expense.id,
+    user_id: expense.userId,
+    subject: expense.subject,
+    amount: expense.amount,
+    category: expense.category,
+    notes: expense.notes || null,
+    date: expense.date,
+    time: expense.time,
+    created_at: new Date(expense.timestamp).toISOString(),
+  });
+
+  if (error) {
+    console.error('Failed to save personal spending to Supabase:', error);
+    throw error;
+  }
+
+  let cached: PersonalExpense[] = [];
+  try {
+    cached = JSON.parse(localStorage.getItem(getExpensesStorageKey(expense.userId)) || '[]');
+  } catch {
+    cached = [];
+  }
+  const updated = [expense, ...cached.filter((item) => item.id !== expense.id)];
   localStorage.setItem(getExpensesStorageKey(expense.userId), JSON.stringify(updated));
-
-  const config = getSavedSupabaseConfig();
-  const client = getSupabaseClient(config);
-
-  if (client && config.isConnected) {
-    try {
-      const { error: supabaseWriteError12 } = await client.from('personal_spendings').upsert({
-        id: expense.id,
-        user_id: expense.userId,
-        subject: expense.subject,
-        amount: expense.amount,
-        category: expense.category,
-        notes: expense.notes || null,
-        date: expense.date,
-        time: expense.time,
-        created_at: new Date(expense.timestamp).toISOString(),
-      }); 
-    if (supabaseWriteError12) throw supabaseWriteError12;
-    } catch (e) {
-      console.warn('Failed to insert spending into Supabase', e);
-    }
-  }
 }
 
-// Delete personal expense
+// Delete a personal expense from the cloud first, then update the local mirror.
 export async function deletePersonalExpense(userId: string, expenseId: string): Promise<void> {
-  const existing = await loadUserSpendings(userId);
-  const updated = existing.filter((e) => e.id !== expenseId);
-  localStorage.setItem(getExpensesStorageKey(userId), JSON.stringify(updated));
-
   const config = getSavedSupabaseConfig();
   const client = getSupabaseClient(config);
 
-  if (client && config.isConnected) {
-    try {
-      const { error: supabaseWriteError13 } = await client.from('personal_spendings').delete().eq('id', expenseId).eq('user_id', userId); 
-    if (supabaseWriteError13) throw supabaseWriteError13;
-    } catch (e) {
-      console.warn('Failed deleting from Supabase', e);
-    }
+  if (!client || !config.isConnected) {
+    throw new Error('Supabase is not connected. Connect Supabase before deleting personal spendings.');
   }
+
+  const { error } = await client
+    .from('personal_spendings')
+    .delete()
+    .eq('id', expenseId)
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('Failed to delete personal spending from Supabase:', error);
+    throw error;
+  }
+
+  let cached: PersonalExpense[] = [];
+  try {
+    cached = JSON.parse(localStorage.getItem(getExpensesStorageKey(userId)) || '[]');
+  } catch {
+    cached = [];
+  }
+  localStorage.setItem(
+    getExpensesStorageKey(userId),
+    JSON.stringify(cached.filter((item) => item.id !== expenseId))
+  );
 }
 
+// Reset only the signed-in user's personal spending history. Keep the starting
+// allowance, but restore the current balance to it and zero the spent total.
+export async function resetUserSpendings(
+  userId: string,
+  budget: PersonalBudget
+): Promise<void> {
+  const config = getSavedSupabaseConfig();
+  const client = getSupabaseClient(config);
+
+  if (!client || !config.isConnected) {
+    throw new Error('Supabase is not connected. Connect Supabase before resetting personal spendings.');
+  }
+
+  const { error: deleteError } = await client
+    .from('personal_spendings')
+    .delete()
+    .eq('user_id', userId);
+
+  if (deleteError) {
+    console.error('Failed to reset personal spendings in Supabase:', deleteError);
+    throw deleteError;
+  }
+
+  const updatedBudget: PersonalBudget = { ...budget, lastUpdated: Date.now() };
+  const { error: budgetError } = await client.from('personal_budgets').upsert({
+    user_id: userId,
+    starting_balance: updatedBudget.startingBalance,
+    current_balance: updatedBudget.startingBalance,
+    total_spent: 0,
+    currency: updatedBudget.currency,
+    period_label: updatedBudget.periodLabel || 'Current Period',
+    updated_at: new Date().toISOString(),
+  });
+
+  if (budgetError) {
+    console.error('Failed to reset personal budget totals in Supabase:', budgetError);
+    throw budgetError;
+  }
+
+  localStorage.setItem(getExpensesStorageKey(userId), JSON.stringify([]));
+  localStorage.setItem(getBudgetStorageKey(userId), JSON.stringify(updatedBudget));
+}
 // ==================== BATCH SYNC TO SUPABASE ====================
 
 export async function syncAllHouseDataToSupabase(

@@ -27,9 +27,11 @@ import {
   saveUserBudget,
   addPersonalExpense,
   deletePersonalExpense,
+  resetUserSpendings,
   parseQuickSpendingInput,
   inferCategoryFromSubject,
-  getSavedSupabaseConfig
+  getSavedSupabaseConfig,
+  getSupabaseClient
 } from '../../lib/supabase';
 import { formatCurrency, getCurrentDateString, getCurrentTimeString } from '../../utils/calculations';
 
@@ -66,6 +68,8 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
   const [budget, setBudget] = useState<PersonalBudget | null>(null);
   const [spendings, setSpendings] = useState<PersonalExpense[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Quick Command input (e.g. "food 1500")
   const [quickInput, setQuickInput] = useState('');
@@ -130,6 +134,53 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
     };
   }, [currentUser]);
 
+  // Keep an open Pocketbook fresh across devices. Realtime handles immediate
+  // updates; focus/visibility refresh also covers sessions where Realtime is disabled.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let active = true;
+    const refreshSpendings = async () => {
+      try {
+        const latest = await loadUserSpendings(currentUser.id);
+        if (active) setSpendings(latest);
+      } catch (error) {
+        console.error('Could not refresh personal spendings from cloud:', error);
+      }
+    };
+
+    const client = getSupabaseClient(supabaseConfig);
+    const channel = client && supabaseConfig.isConnected
+      ? client
+          .channel(`personal-spendings-${currentUser.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'personal_spendings',
+              filter: `user_id=eq.${currentUser.id}`,
+            },
+            () => void refreshSpendings()
+          )
+          .subscribe()
+      : null;
+
+    const handleFocus = () => void refreshSpendings();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshSpendings();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      active = false;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (client && channel) void client.removeChannel(channel);
+    };
+  }, [currentUser?.id, supabaseConfig]);
+
   // Live preview parser for quick input like "food 1500"
   useEffect(() => {
     const parsed = parseQuickSpendingInput(quickInput);
@@ -162,10 +213,15 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
       timestamp: Date.now(),
     };
 
-    setSpendings((prev) => [newExpense, ...prev]);
-    setQuickInput('');
-    setQuickParsedPreview(null);
-    await addPersonalExpense(newExpense);
+    setSyncError(null);
+    try {
+      await addPersonalExpense(newExpense);
+      setSpendings((prev) => [newExpense, ...prev.filter((item) => item.id !== newExpense.id)]);
+      setQuickInput('');
+      setQuickParsedPreview(null);
+    } catch (error: any) {
+      setSyncError(error?.message || 'Could not save this spending to Supabase. Please try again.');
+    }
   };
 
   // Detailed form submit
@@ -187,19 +243,50 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
       timestamp: Date.now(),
     };
 
-    setSpendings((prev) => [newExpense, ...prev]);
-    setSubject('');
-    setAmountStr('');
-    setNotes('');
-    setShowDetailedForm(false);
-    await addPersonalExpense(newExpense);
+    setSyncError(null);
+    try {
+      await addPersonalExpense(newExpense);
+      setSpendings((prev) => [newExpense, ...prev.filter((item) => item.id !== newExpense.id)]);
+      setSubject('');
+      setAmountStr('');
+      setNotes('');
+      setShowDetailedForm(false);
+    } catch (error: any) {
+      setSyncError(error?.message || 'Could not save this spending to Supabase. Please try again.');
+    }
   };
 
   // Delete expense
   const handleDelete = async (id: string) => {
     if (!currentUser) return;
-    setSpendings((prev) => prev.filter((item) => item.id !== id));
-    await deletePersonalExpense(currentUser.id, id);
+    setSyncError(null);
+    try {
+      await deletePersonalExpense(currentUser.id, id);
+      setSpendings((prev) => prev.filter((item) => item.id !== id));
+    } catch (error: any) {
+      setSyncError(error?.message || 'Could not delete this spending from Supabase.');
+    }
+  };
+
+  // Permanently clear this account's personal spending history from cloud and local view.
+  const handleResetSpendings = async () => {
+    if (!currentUser || !budget || isResetting) return;
+    const confirmed = window.confirm(
+      'Reset all your personal spendings? This permanently deletes your personal spending history from the cloud and restores your remaining balance to your starting allowance. This cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    setIsResetting(true);
+    setSyncError(null);
+    try {
+      await resetUserSpendings(currentUser.id, budget);
+      setSpendings([]);
+      setBudget({ ...budget, lastUpdated: Date.now() });
+    } catch (error: any) {
+      setSyncError(error?.message || 'Could not reset personal spendings in Supabase.');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   // Save updated starting budget
@@ -340,9 +427,9 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               <span className="text-xs text-stone-400 font-mono truncate hidden sm:inline">
                 ({currentUser.email})
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ${supabaseConfig.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Supabase Connected • Always Synced</span>
+                <span>Supabase Cloud Sync</span>
               </span>
             </div>
             <p className="text-xs text-stone-500">
@@ -656,6 +743,17 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
         )}
       </div>
 
+      {syncError && (
+        <div role="alert" className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-bold">Cloud sync failed</p>
+            <p>{syncError}</p>
+          </div>
+          <button type="button" onClick={() => setSyncError(null)} className="font-bold text-rose-700">×</button>
+        </div>
+      )}
+
       {/* Two Column Layout: Spendings List & Category Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -672,6 +770,19 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               <p className="text-xs text-stone-500">
                 Each expense deducted from your remaining balance
               </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetSpendings}
+                disabled={isResetting || spendings.length === 0}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Permanently delete all your personal spending history"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {isResetting ? 'Resetting…' : 'Reset Spendings'}
+              </button>
             </div>
 
             {/* Filter controls */}
