@@ -632,7 +632,6 @@ export async function loadSettlementsFromSupabase(): Promise<SettlementRecord[] 
         time: row.time,
         timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
         note: row.note,
-        isAdjustment: typeof row.note === 'string' && row.note.startsWith('[POT_BALANCE_ADJUSTMENT]'),
       }));
     }
   } catch (e) {
@@ -699,7 +698,10 @@ export async function loadPotContributionsFromSupabase(): Promise<SharedPotContr
         date: row.date,
         time: row.time,
         timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
-        note: row.note,
+        note: typeof row.note === 'string' && row.note.startsWith('[POT_BALANCE_ADJUSTMENT]')
+          ? row.note.replace(/^\[POT_BALANCE_ADJUSTMENT\]\s*/, '')
+          : row.note,
+        isAdjustment: typeof row.note === 'string' && row.note.startsWith('[POT_BALANCE_ADJUSTMENT]'),
       }));
     }
   } catch (e) {
