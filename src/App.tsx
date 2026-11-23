@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Expense, HouseSettings, SettlementRecord, SharedPotContribution } from './types/expense';
 import { AuthUser, SupabaseConfig } from './types/personal';
 import { DEFAULT_SETTINGS, INITIAL_EXPENSES, INITIAL_SETTLEMENTS, INITIAL_POT_CONTRIBUTIONS } from './utils/sampleData';
-import { calculateSummaries } from './utils/calculations';
+import { calculateSummaries, getCurrentExpenseCycle } from './utils/calculations';
 import {
   getCurrentUser,
   getSavedSupabaseConfig,
@@ -161,6 +161,20 @@ export default function App() {
   );
 
   const summariesList = useMemo(() => Object.values(summaries), [summaries]);
+
+  // The main dashboard's shared-expense KPI follows the 20th-to-20th cycle.
+  // Keep all-time roommate balances and transaction history unchanged.
+  const currentExpenseCycle = getCurrentExpenseCycle();
+  const currentCycleExpenses = expenses.filter(
+    (expense) =>
+      expense.date >= currentExpenseCycle.startDate &&
+      expense.date < currentExpenseCycle.endDate
+  );
+  const currentCycleSharedSpend = currentCycleExpenses.reduce(
+    (total, expense) => total + expense.amount,
+    0
+  );
+  const currentCyclePerPersonAvg = currentCycleSharedSpend / (settings.roommates.length || 3);
 
   const sharedPotBalance = useMemo(() => {
     const totalDeposited = potContributions.reduce((sum, c) => sum + c.amount, 0);
@@ -478,6 +492,9 @@ export default function App() {
                     summaries={summaries}
                     totalHouseSpend={totalHouseSpend}
                     totalPerPersonAvg={totalPerPersonAvg}
+                    currentCycleSharedSpend={currentCycleSharedSpend}
+                    currentCyclePerPersonAvg={currentCyclePerPersonAvg}
+                    currentCycleLabel={currentExpenseCycle.label}
                     currency={settings.currency}
                     sharedPotBalance={sharedPotBalance}
                     onSwitchToPot={() => {

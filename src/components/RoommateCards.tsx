@@ -8,6 +8,9 @@ interface RoommateCardsProps {
   summaries: Record<string, RoommateFinancialSummary>;
   totalHouseSpend: number;
   totalPerPersonAvg: number;
+  currentCycleSharedSpend: number;
+  currentCyclePerPersonAvg: number;
+  currentCycleLabel: string;
   currency: string;
   sharedPotBalance?: number;
   onSwitchToPot?: () => void;
@@ -18,6 +21,9 @@ export const RoommateCards: React.FC<RoommateCardsProps> = ({
   summaries,
   totalHouseSpend,
   totalPerPersonAvg,
+  currentCycleSharedSpend,
+  currentCyclePerPersonAvg,
+  currentCycleLabel,
   currency,
   sharedPotBalance,
   onSwitchToPot,
@@ -33,7 +39,7 @@ export const RoommateCards: React.FC<RoommateCardsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                Total Shared Expenses
+                Current Cycle Shared Expenses
               </span>
               {typeof sharedPotBalance === 'number' && onSwitchToPot && (
                 <button
@@ -47,8 +53,9 @@ export const RoommateCards: React.FC<RoommateCardsProps> = ({
               )}
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-stone-900 tracking-tight">
-              {formatCurrency(totalHouseSpend, currency)}
+              {formatCurrency(currentCycleSharedSpend, currency)}
             </div>
+            <div className="text-[11px] text-stone-400 mt-0.5">{currentCycleLabel} · resets every 20th</div>
           </div>
         </div>
 
@@ -56,7 +63,7 @@ export const RoommateCards: React.FC<RoommateCardsProps> = ({
           <div>
             <div className="text-xs font-semibold text-stone-500">Equal 1/3 Share</div>
             <div className="text-lg sm:text-xl font-bold font-mono tabular-nums text-orange-600">
-              {formatCurrency(totalPerPersonAvg, currency)}
+              {formatCurrency(currentCyclePerPersonAvg, currency)}
               <span className="text-xs text-stone-500 font-sans font-normal ml-1">/ person</span>
             </div>
           </div>
