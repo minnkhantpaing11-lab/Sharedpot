@@ -72,6 +72,7 @@ export interface SharedPotContribution {
   time: string;
   timestamp: number;
   note?: string;
+  isAdjustment?: boolean;
 }
 
 export interface SharedPotSettings {

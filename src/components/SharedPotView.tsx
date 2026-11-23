@@ -60,6 +60,8 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonth);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isEditTargetModalOpen, setIsEditTargetModalOpen] = useState(false);
+  const [isResetPotModalOpen, setIsResetPotModalOpen] = useState(false);
+  const [manualBalanceStr, setManualBalanceStr] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'deposits' | 'bills'>('all');
 
   // Form states
@@ -102,7 +104,7 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
   const ledgerActivity = useMemo(() => {
     interface ActivityItem {
       id: string;
-      type: 'deposit' | 'deduction';
+      type: 'deposit' | 'deduction' | 'adjustment';
       title: string;
       amount: number;
       date: string;
@@ -121,8 +123,8 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
       const rm = settings.roommates.find((r) => r.id === c.roommateId);
       items.push({
         id: c.id,
-        type: 'deposit',
-        title: `${rm?.name || 'Roommate'} Monthly Pot Deposit`,
+        type: c.isAdjustment ? 'adjustment' : 'deposit',
+        title: c.isAdjustment ? 'Manual Pot Balance Adjustment' : `${rm?.name || 'Roommate'} Monthly Pot Deposit`,
         amount: c.amount,
         date: c.date,
         time: c.time,
@@ -211,6 +213,30 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
     setDepositNote('');
   };
 
+  // Set the actual remaining cash as the new balance. Store only the difference,
+  // preserving the old ledger while future deposits and bills continue from this value.
+  const handleManualBalanceSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    const desiredBalance = Number(manualBalanceStr);
+    if (!Number.isFinite(desiredBalance) || desiredBalance < 0) return;
+    const adjustment = Math.round(desiredBalance - summary.currentBalance);
+    if (adjustment !== 0) {
+      const now = Date.now();
+      onAddContribution({
+        id: `pot-adjustment-${now}`,
+        roommateId: 'p1',
+        month: getCurrentMonthString(),
+        amount: adjustment,
+        date: getCurrentDateString(),
+        time: getCurrentTimeString(),
+        timestamp: now,
+        note: 'Manual balance adjustment',
+        isAdjustment: true,
+      });
+    }
+    setIsResetPotModalOpen(false);
+  };
+
   // Handle save target
   const handleSaveTarget = (e: React.FormEvent) => {
     e.preventDefault();
@@ -291,6 +317,9 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
               <PiggyBank className="w-4 h-4 text-orange-600" />
               <span>Current Pot Balance</span>
             </span>
+            <button type="button" onClick={() => { setManualBalanceStr(String(Math.round(summary.currentBalance))); setIsResetPotModalOpen(true); }} className="text-orange-600 hover:text-orange-700 font-bold flex items-center gap-1">
+              <Edit3 className="w-3 h-3" /><span>Reset Pot</span>
+            </button>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
               isDeficit
                 ? 'bg-rose-100 text-rose-800 border-rose-300'
@@ -545,9 +574,11 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${
                       isDeposit
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : item.type === 'adjustment'
+                        ? 'bg-sky-50 text-sky-700 border border-sky-200'
                         : 'bg-orange-50 text-orange-700 border border-orange-200'
                     }`}>
-                      {isDeposit ? <ArrowDownLeft className="w-4 h-4 text-emerald-600" /> : <ArrowUpRight className="w-4 h-4 text-orange-600" />}
+                      {isDeposit ? <ArrowDownLeft className="w-4 h-4 text-emerald-600" /> : item.type === 'adjustment' ? <Edit3 className="w-4 h-4 text-sky-600" /> : <ArrowUpRight className="w-4 h-4 text-orange-600" />}
                     </div>
 
                     <div className="min-w-0">
@@ -558,9 +589,11 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
                           isDeposit
                             ? 'bg-emerald-100/70 text-emerald-800 border-emerald-200'
+                            : item.type === 'adjustment'
+                            ? 'bg-sky-100 text-sky-800 border-sky-200'
                             : 'bg-orange-100/70 text-orange-800 border-orange-200'
                         }`}>
-                          {isDeposit ? 'Deposit' : 'Bill Deducted'}
+                          {isDeposit ? 'Deposit' : item.type === 'adjustment' ? 'Balance Adjusted' : 'Bill Deducted'}
                         </span>
                       </div>
 
@@ -576,13 +609,13 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
                     <span className={`text-base font-bold font-mono tabular-nums ${
                       isDeposit ? 'text-emerald-600' : 'text-stone-900'
                     }`}>
-                      {isDeposit ? `+${formatCurrency(item.amount, currency)}` : `-${formatCurrency(item.amount, currency)}`}
+                      {isDeposit ? `+${formatCurrency(item.amount, currency)}` : item.type === 'adjustment' ? `${item.amount >= 0 ? '+' : '-'}${formatCurrency(Math.abs(item.amount), currency)}` : `-${formatCurrency(item.amount, currency)}`}
                     </span>
 
-                    {isDeposit && (
+                    {(isDeposit || item.type === 'adjustment') && (
                       <button
                         onClick={() => onDeleteContribution(item.id)}
-                        title="Remove deposit"
+                        title={item.type === 'adjustment' ? 'Remove balance adjustment' : 'Remove deposit'}
                         className="p-1 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-stone-100"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -595,6 +628,30 @@ export const SharedPotView: React.FC<SharedPotViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* MANUAL POT BALANCE MODAL */}
+      {isResetPotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white border-t sm:border border-stone-200 rounded-t-3xl sm:rounded-2xl max-w-sm w-full p-5 sm:p-6 space-y-4 shadow-xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+            <div className="sm:hidden w-12 h-1.5 bg-stone-300 rounded-full mx-auto -mt-1 mb-1" />
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-stone-900 flex items-center gap-2"><PiggyBank className="w-4 h-4 text-orange-600" /><span>Reset Pot Balance</span></h3>
+              <button type="button" onClick={() => setIsResetPotModalOpen(false)} className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-700 rounded-lg"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-xs text-stone-500">Enter the actual amount currently remaining in your shared pot. Previous deposits and bills stay in the ledger; future deposits and bills continue from this corrected balance.</p>
+            <form onSubmit={handleManualBalanceSave} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Actual Remaining Balance ({currency})</label>
+                <input type="number" min="0" step="1" required value={manualBalanceStr} onChange={(e) => setManualBalanceStr(e.target.value)} className="w-full px-3 py-3 text-lg font-mono font-bold bg-stone-50 border border-stone-300 rounded-xl text-stone-900 focus:outline-none focus:border-orange-500 focus:bg-white" placeholder="Enter remaining pot amount" />
+              </div>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button type="button" onClick={() => setIsResetPotModalOpen(false)} className="px-4 py-2.5 text-xs font-semibold text-stone-500 hover:text-stone-800">Cancel</button>
+                <button type="submit" className="flex-1 sm:flex-initial px-5 py-2.5 min-h-[42px] text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-xl shadow-xs active:scale-95 transition-all">Save Balance</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* DEPOSIT MODAL */}
       {isDepositModalOpen && (
