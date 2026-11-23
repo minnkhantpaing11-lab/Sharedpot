@@ -30,7 +30,8 @@ import {
   resetUserSpendings,
   parseQuickSpendingInput,
   inferCategoryFromSubject,
-  getSavedSupabaseConfig
+  getSavedSupabaseConfig,
+  getSupabaseClient
 } from '../../lib/supabase';
 import { formatCurrency, getCurrentDateString, getCurrentTimeString } from '../../utils/calculations';
 
@@ -132,6 +133,53 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
       isMounted = false;
     };
   }, [currentUser]);
+
+  // Keep an open Pocketbook fresh across devices. Realtime handles immediate
+  // updates; focus/visibility refresh also covers sessions where Realtime is disabled.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let active = true;
+    const refreshSpendings = async () => {
+      try {
+        const latest = await loadUserSpendings(currentUser.id);
+        if (active) setSpendings(latest);
+      } catch (error) {
+        console.error('Could not refresh personal spendings from cloud:', error);
+      }
+    };
+
+    const client = getSupabaseClient(supabaseConfig);
+    const channel = client && supabaseConfig.isConnected
+      ? client
+          .channel(`personal-spendings-${currentUser.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'personal_spendings',
+              filter: `user_id=eq.${currentUser.id}`,
+            },
+            () => void refreshSpendings()
+          )
+          .subscribe()
+      : null;
+
+    const handleFocus = () => void refreshSpendings();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshSpendings();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      active = false;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (client && channel) void client.removeChannel(channel);
+    };
+  }, [currentUser?.id, supabaseConfig]);
 
   // Live preview parser for quick input like "food 1500"
   useEffect(() => {
@@ -379,9 +427,9 @@ export const PersonalLedgerView: React.FC<PersonalLedgerViewProps> = ({
               <span className="text-xs text-stone-400 font-mono truncate hidden sm:inline">
                 ({currentUser.email})
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 {supabaseConfig.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Supabase Connected • Always Synced</span>
+                <span>Supabase Cloud Sync</span>
               </span>
             </div>
             <p className="text-xs text-stone-500">
