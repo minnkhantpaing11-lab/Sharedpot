@@ -168,6 +168,34 @@ export function calculateSharedPotSummary(
   };
 }
 
+/**
+ * Shared expense cycle runs from the 20th of one month up to (but not including)
+ * the 20th of the next month. Dates are compared as YYYY-MM-DD strings.
+ */
+export function getCurrentExpenseCycle(referenceDate: Date = new Date()): {
+  startDate: string;
+  endDate: string;
+  label: string;
+} {
+  const year = referenceDate.getFullYear();
+  const month = referenceDate.getMonth();
+  const start = referenceDate.getDate() >= 20
+    ? new Date(year, month, 20)
+    : new Date(year, month - 1, 20);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 20);
+  const lastDay = new Date(end.getFullYear(), end.getMonth(), 19);
+  const toDateKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const formatDay = (date: Date) =>
+    date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return {
+    startDate: toDateKey(start),
+    endDate: toDateKey(end),
+    label: `${formatDay(start)} – ${formatDay(lastDay)}`,
+  };
+}
+
 export function calculateSummaries(
   expenses: Expense[],
   settlements: SettlementRecord[],
