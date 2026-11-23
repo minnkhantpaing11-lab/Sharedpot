@@ -928,8 +928,13 @@ export async function addPersonalExpense(expense: PersonalExpense): Promise<void
     throw error;
   }
 
-  const existing = await loadUserSpendings(expense.userId);
-  const updated = [expense, ...existing.filter((item) => item.id !== expense.id)];
+  let cached: PersonalExpense[] = [];
+  try {
+    cached = JSON.parse(localStorage.getItem(getExpensesStorageKey(expense.userId)) || '[]');
+  } catch {
+    cached = [];
+  }
+  const updated = [expense, ...cached.filter((item) => item.id !== expense.id)];
   localStorage.setItem(getExpensesStorageKey(expense.userId), JSON.stringify(updated));
 }
 
@@ -953,10 +958,15 @@ export async function deletePersonalExpense(userId: string, expenseId: string): 
     throw error;
   }
 
-  const existing = await loadUserSpendings(userId);
+  let cached: PersonalExpense[] = [];
+  try {
+    cached = JSON.parse(localStorage.getItem(getExpensesStorageKey(userId)) || '[]');
+  } catch {
+    cached = [];
+  }
   localStorage.setItem(
     getExpensesStorageKey(userId),
-    JSON.stringify(existing.filter((item) => item.id !== expenseId))
+    JSON.stringify(cached.filter((item) => item.id !== expenseId))
   );
 }
 
