@@ -301,7 +301,12 @@ export default function App() {
   const handleAddPotContribution = (newContribution: SharedPotContribution) => {
     setPotContributions((prev) => [newContribution, ...prev]);
     savePotContributionToSupabase(newContribution);
-    showToast(`Deposited ¥${newContribution.amount.toLocaleString()} into Shared Pot 🍯`);
+    if (newContribution.isAdjustment) {
+      const sign = newContribution.amount >= 0 ? '+' : '-';
+      showToast(`Pot balance adjusted by ${sign}¥${Math.abs(newContribution.amount).toLocaleString()} and saved`);
+    } else {
+      showToast(`Deposited ¥${newContribution.amount.toLocaleString()} into Shared Pot 🍯`);
+    }
   };
 
   const handleDeletePotContribution = (id: string) => {
